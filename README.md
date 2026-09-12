@@ -7,20 +7,36 @@ the React client and API Gateway invokes the Express API as a Lambda function.
 
 ## AWS Amplify + Lambda deployment
 
-The repository includes `amplify.yml` for the client and `template.yaml` for
-the Lambda function, HTTP API, IAM role, and CloudWatch logs. An existing MySQL
-database is required; the template does not create or modify your database.
+Amplify hosts the client and automatically deploys changes pushed or merged to
+`main`. The server is deployed separately using `template.yaml`, which creates
+Lambda, API Gateway HTTP API, an IAM role, and CloudWatch logs. An existing MySQL
+database is required. Runtime variables are entered directly in the Lambda
+console; Secrets Manager is not required, and the template does not manage the
+function's environment variables.
 
-1. In Amplify Hosting, connect this repository, select the branch, choose the
-   monorepo option, and set the application root to `client`. Ensure
-   `AMPLIFY_MONOREPO_APP_ROOT=client`. The checked-in build settings use Node 22,
-   `npm ci`, and publish `client/dist`. Note the resulting HTTPS frontend origin.
-2. In Secrets Manager, create a JSON secret in the deployment region containing
-   `DB_USER`, `DB_PASSWORD`, `ADMIN_USER`, `ADMIN_PASSWORD`, and `COOKIE_SECRET`.
-   Use a strong random cookie secret. Copy the secret ARN. Application login
-   credentials are separate from database credentials.
-3. With Node 22, AWS CLI credentials, and AWS SAM CLI installed, run from the
-   repository root:
+1. **Check local tools and AWS access.** Use Node 22, AWS CLI, and AWS SAM CLI.
+   From the repository root in PowerShell, run:
+
+   ```powershell
+   node --version
+   aws --version
+   sam --version
+   aws sts get-caller-identity
+   ```
+
+   If the identity check fails, sign in with your organization's AWS profile
+   or configure AWS CLI credentials before continuing. Use the same region as
+   your database. For a named profile, add `--profile YOUR_PROFILE` to AWS and
+   SAM deployment commands.
+
+2. **Prepare database networking.** For private RDS, choose private subnet IDs
+   and a Lambda security group in the database VPC. On the RDS security group,
+   allow inbound TCP 3306 (or your database port) from the Lambda security group.
+   Allow the corresponding outbound traffic from Lambda. A public subnet alone
+   does not give Lambda a public IP. Leave both VPC parameters empty only if the
+   database is reachable without VPC attachment.
+
+3. **Create the Lambda deployment.** Run:
 
    ```powershell
    sam validate --lint
@@ -28,45 +44,101 @@ database is required; the template does not create or modify your database.
    sam deploy --guided
    ```
 
-   Supply `ClientOrigin` (for example `https://main.APP_ID.amplifyapp.com`, no
-   trailing slash), database host/port/name, and `RuntimeSecretArn`. Allow SAM
-   to create the IAM role. The API has no API Gateway authorizer because the
-   Express routes enforce the application's signed session cookie. The deployment
-   identity needs permission to resolve the secret (and decrypt its KMS key if
-   applicable). Secret values resolve into Lambda environment variables at
-   deployment; after rotation, update the function configuration through a stack
-   update to refresh them. Local `.env` files are excluded from the SAM package
-   by the server package's explicit file list.
-4. For private RDS, supply comma-separated private `SubnetIds` and Lambda
-   `SecurityGroupIds` in the database VPC. Allow inbound TCP 3306 (or your DB
-   port) on the database security group from the Lambda security group and allow
-   corresponding Lambda egress. Leave both parameters empty only when the
-   database is reachable without VPC attachment. A public subnet alone does not
-   give Lambda a public IP. Consider RDS Proxy for higher concurrency; each warm
-   Lambda environment has its own pool (`DatabasePoolSize`, default 2).
-5. Copy the stack's `ApiUrl` output to Amplify's `VITE_API_URL` environment
-   variable, including `/api`, then redeploy the client. Vite embeds this public
-   URL at build time. Put database and login secrets only in the backend, never
-   in Amplify's `VITE_*` variables.
-6. Open the Amplify URL, sign in, browse a table, and verify record insertion
-   and editing against your database. `/api/health` checks database connectivity.
+   Answer the guided prompts:
 
-The default `CookieSameSite=none` enables secure cross-site cookies between the
-Amplify and API Gateway domains. Browsers that block third-party cookies can
-still block this session. For reliable browser support, use custom domains such
-as `admin.example.com` (Amplify) and `api.example.com` (API Gateway), set
-`ClientOrigin` and `VITE_API_URL` accordingly, and use `CookieSameSite=lax`.
-Custom domains and DNS are configured separately from this template. Only the
-configured origin is allowed; update `ClientOrigin` when changing the frontend
-domain. Arbitrary Amplify preview branches are not automatically authorized.
+   | Prompt | Value |
+   |---|---|
+   | Stack Name | `mysql-admin-api` |
+   | AWS Region | Your database region, for example `ap-south-1` |
+   | SubnetIds | Comma-separated private subnet IDs, or empty as described above |
+   | SecurityGroupIds | Comma-separated Lambda security group IDs; required with subnets |
+   | Confirm changes before deploy | `Y` |
+   | Allow SAM CLI IAM role creation | `Y` |
+   | ApiFunction has no authentication, is this okay? | `Y`; Express enforces login and session cookies |
+   | Disable rollback | `N` |
+   | Save arguments to configuration file | `Y`; keep the default file/environment |
 
-The current client uses only the root URL, so no SPA rewrite is required.
-If client-side routes are added later, configure Amplify's SPA fallback after
-any API proxy rules. Composite primary key tables can be browsed and inserted
-into, but editing is disabled because the API currently accepts one key column.
+   Save the stack outputs `FunctionName` and `ApiUrl`. The function will reject
+   requests until the required environment variables are configured in step 4.
+   Local `.env` files are excluded from the package by `server/package.json`'s
+   explicit file list. Do not upload the source folder with its local `.env`.
 
-AWS references: [Amplify monorepo build settings](https://docs.aws.amazon.com/amplify/latest/userguide/monorepo-configuration.html),
-[SAM HTTP APIs](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-resource-httpapi.html).
+4. **Set Lambda environment variables.** In AWS Console, select the deployment
+   region, open **Lambda > Functions > the FunctionName output > Configuration
+   > Environment variables > Edit**, and add these values:
+
+   | Variable | Value |
+   |---|---|
+   | `NODE_ENV` | `production` |
+   | `DB_HOST` | MySQL/RDS hostname without `https://` |
+   | `DB_PORT` | `3306`, or your database port |
+   | `DB_USER` | Database username |
+   | `DB_PASSWORD` | Database password |
+   | `DB_NAME` | Database name |
+   | `ADMIN_USER` | Application login username |
+   | `ADMIN_PASSWORD` | Application login password |
+   | `COOKIE_SECRET` | Long random secret; generate it using the command below |
+   | `CORS_ORIGINS` | Exact Amplify HTTPS origin, e.g. `https://main.APP_ID.amplifyapp.com`, without a trailing slash |
+   | `COOKIE_SAME_SITE` | `none` for Amplify and API Gateway default domains |
+   | `DB_POOL_SIZE` | `2` |
+   | `ALLOWED_TABLES` | Optional comma-separated table names; omit to allow all tables |
+
+   Generate a cookie secret locally:
+
+   ```powershell
+   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+   ```
+
+   Click **Save** and wait for the function update to finish. Application login
+   credentials are separate from database credentials. Lambda supplies AWS
+   runtime variables itself; do not add `AWS_REGION` or
+   `AWS_LAMBDA_FUNCTION_NAME`. No `PORT` setting is needed for Lambda.
+
+5. **Connect the already deployed Amplify client.** In Amplify's environment
+   variables, set `VITE_API_URL` to the stack's `ApiUrl`, including `/api`:
+
+   ```text
+   VITE_API_URL=https://API_ID.execute-api.ap-south-1.amazonaws.com/api
+   ```
+
+   Keep `AMPLIFY_MONOREPO_APP_ROOT=client`. Amplify builds using `amplify.yml`
+   and publishes `client/dist`. A push or merge to `main` triggers the next
+   build automatically. If you only change `VITE_API_URL` in the console,
+   manually redeploy the branch once because Vite embeds the URL at build time.
+   Do not put database credentials or login secrets in `VITE_*` variables.
+
+6. **Verify the deployment.** Open `ApiUrl` followed by `/health`:
+
+   ```text
+   https://API_ID.execute-api.ap-south-1.amazonaws.com/api/health
+   ```
+
+   Expected response:
+
+   ```json
+   {"status":"OK","database":"connected"}
+   ```
+
+   Open the Amplify app, sign in with `ADMIN_USER` and `ADMIN_PASSWORD`, and
+   verify table browsing, insertion, and editing. If the API fails, check
+   **Lambda > Monitor > View CloudWatch logs**, environment variables, and
+   database networking.
+
+The default domain setup requires `COOKIE_SAME_SITE=none` and HTTPS. Browsers
+that block third-party cookies may still block login sessions. For reliable
+browser support, configure related custom domains such as `admin.example.com`
+for Amplify and `api.example.com` for API Gateway, use `COOKIE_SAME_SITE=lax`,
+and update `CORS_ORIGINS` and `VITE_API_URL`. Custom domains and DNS are configured
+separately. Add any authorized preview origins explicitly to `CORS_ORIGINS`,
+separated by commas.
+
+The client currently uses only the root URL, so no SPA rewrite is required.
+Composite primary key tables can be browsed and inserted into, but editing is
+disabled because the API accepts one key column. Each warm Lambda environment
+has its own database pool; consider RDS Proxy for higher concurrency.
+
+AWS references: [Lambda environment variables](https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html),
+[SAM deployment](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-cli-command-reference-sam-deploy.html).
 
 ## Local development
 
@@ -139,3 +211,48 @@ RDS security group must allow the application's connection on port 3306.
 Do not bake credentials into the Docker image. `.env` files are excluded from
 both Git and the Docker build context. Use HTTPS and a least-privilege database
 account for deployed access.
+
+## Final step: updating Lambda after future changes
+
+Amplify automatically builds and deploys the client after changes reach `main`.
+This repository does not configure automatic Lambda deployment. For changes to
+`server/`, including dependencies, deploy the server separately from the updated
+checkout:
+
+```powershell
+npm ci --prefix server
+npm test --prefix server
+sam validate --lint
+sam build
+sam deploy
+```
+
+Run commands one at a time and continue only if the previous command succeeds.
+`sam deploy` reuses the stack, region, and VPC settings saved during the initial
+guided deployment. If this is a new checkout without `samconfig.toml`, use
+`sam deploy --guided` and enter the existing stack name, region, and VPC values.
+Do not create a new stack for a routine update. For changes to VPC parameters,
+also use guided deployment and review the change set.
+
+For stacks created with the current template, environment variables remain
+console-managed: the template has no `Environment` property. Do not add one
+unless intentionally moving configuration management into CloudFormation.
+After deployment, confirm your variables are present, check `/api/health`, and
+verify login and the changed functionality. A replacement function or a newly
+created stack needs its variables entered again before it can serve requests.
+
+If a stack was previously deployed with the old Secrets Manager template,
+removing its managed `Environment` property can clear existing variables during
+that first migration. Have the values available securely, deploy this template,
+and re-enter all variables through the Lambda console before testing.
+
+For environment-only changes, edit the existing variables in **Lambda ?
+Configuration > Environment variables > Edit > Save**; no code build or upload
+is required. Changing `COOKIE_SECRET` invalidates existing sessions. Do not
+commit environment values to Git.
+
+Client-only changes need no Lambda deployment. Server updates normally keep the
+same API URL, so no Amplify setting change is needed. If the API URL changes,
+update `VITE_API_URL` in Amplify and trigger a client build. When a change affects
+both client and server, deploy a backward-compatible server update before the
+client change reaches `main` so Amplify's automatic deployment can use it.

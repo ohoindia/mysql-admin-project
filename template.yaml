@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: MySQL admin API on Lambda and API Gateway HTTP API
+
+Parameters:
+  ClientOrigin:
+    Type: String
+    Description: Exact HTTPS Amplify or custom frontend origin, without a trailing slash
+    AllowedPattern: 'https://[^/]+'
+  DatabaseHost:
+    Type: String
+  DatabasePort:
+    Type: Number
+    Default: 3306
+  DatabaseName:
+    Type: String
+  RuntimeSecretArn:
+    Type: String
+    Description: ARN of a Secrets Manager JSON secret with DB_USER, DB_PASSWORD, ADMIN_USER, ADMIN_PASSWORD, COOKIE_SECRET
+  SubnetIds:
+    Type: String
+    Default: ''
+    Description: Comma-separated private subnet IDs for private RDS; leave empty for a publicly reachable database
+  SecurityGroupIds:
+    Type: String
+    Default: ''
+    Description: Comma-separated Lambda security group IDs; required when SubnetIds is set
+  CookieSameSite:
+    Type: String
+    Default: none
+    AllowedValues: [lax, strict, none]
+  DatabasePoolSize:
+    Type: Number
+    Default: 2
+    MinValue: 1
+  AllowedTables:
+    Type: String
+    Default: ''
+
+Conditions:
+  UseVpc: !Not [!Equals [!Ref SubnetIds, '']]
+
+Rules:
+  VpcRequiresSecurityGroups:
+    RuleCondition: !Not [!Equals [!Ref SubnetIds, '']]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref SecurityGroupIds, '']]
+        AssertDescription: SecurityGroupIds must be supplied with SubnetIds.
+
+Resources:
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks: [W1033]
+    Properties:
+      CodeUri: server/
+      Handler: lambda.handler
+      Runtime: nodejs22.x
+      Architectures: [x86_64]
+      MemorySize: 512
+      Timeout: 28
+      Policies:
+        - AWSLambdaBasicExecutionRole
+        - !If [UseVpc, !Sub 'arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole', !Ref 'AWS::NoValue']
+      VpcConfig: !If
+        - UseVpc
+        - SubnetIds: !Split [',', !Ref SubnetIds]
+          SecurityGroupIds: !Split [',', !Ref SecurityGroupIds]
+        - !Ref AWS::NoValue
+      Environment:
+        Variables:
+          NODE_ENV: production
+          DB_HOST: !Ref DatabaseHost
+          DB_PORT: !Ref DatabasePort
+          DB_NAME: !Ref DatabaseName
+          DB_POOL_SIZE: !Ref DatabasePoolSize
+          DB_USER: !Sub '{{resolve:secretsmanager:${RuntimeSecretArn}:SecretString:DB_USER}}'
+          DB_PASSWORD: !Sub '{{resolve:secretsmanager:${RuntimeSecretArn}:SecretString:DB_PASSWORD}}'
+          ADMIN_USER: !Sub '{{resolve:secretsmanager:${RuntimeSecretArn}:SecretString:ADMIN_USER}}'
+          ADMIN_PASSWORD: !Sub '{{resolve:secretsmanager:${RuntimeSecretArn}:SecretString:ADMIN_PASSWORD}}'
+          COOKIE_SECRET: !Sub '{{resolve:secretsmanager:${RuntimeSecretArn}:SecretString:COOKIE_SECRET}}'
+          CORS_ORIGINS: !Ref ClientOrigin
+          COOKIE_SAME_SITE: !Ref CookieSameSite
+          ALLOWED_TABLES: !Ref AllowedTables
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /api/{proxy+}
+            Method: ANY
+            PayloadFormatVersion: '2.0'
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ApiFunction}'
+      RetentionInDays: 14
+
+Outputs:
+  ApiUrl:
+    Description: Set this value as VITE_API_URL in Amplify
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/api'
+  FunctionName:
+    Value: !Ref ApiFunction

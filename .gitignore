@@ -6,3 +6,10 @@ frontend/node_modules/
 frontend/dist/
 __pycache__/
 *.pyc
+**/node_modules/
+**/dist/
+.aws-sam/
+samconfig.toml
+**/.env.*
+!**/.env.example
+!.env.docker.example

@@ -4,6 +4,10 @@ import TableSidebar from './components/TableSidebar'
 import RecordModal from './components/RecordModal'
 
 export default function App() {
+  const [user, setUser] = useState(null)
+  const [checkingSession, setCheckingSession] = useState(true)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [tables, setTables] = useState([])
   const [selected, setSelected] = useState('')
   const [schema, setSchema] = useState(null)
@@ -18,30 +22,50 @@ export default function App() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    api.get('/tables').then(r => {
-      setTables(r.data.tables)
-      if (r.data.tables.length) setSelected(r.data.tables[0])
-    }).catch(e => setError(e.response?.data?.detail || e.message))
+    const interceptor = api.interceptors.response.use(response => response, error => {
+      if (error.response?.status === 401) setUser(null)
+      return Promise.reject(error)
+    })
+    api.get('/auth/me').then(r => setUser(r.data.username))
+      .catch(e => { if (e.response?.status !== 401) setError(e.response?.data?.error || e.message) })
+      .finally(() => setCheckingSession(false))
+    return () => api.interceptors.response.eject(interceptor)
   }, [])
 
   useEffect(() => {
-    if (!selected) return
-    setPage(1)
-    api.get(`/tables/${encodeURIComponent(selected)}/schema`).then(r => setSchema(r.data)).catch(e => setError(e.response?.data?.detail || e.message))
-  }, [selected])
+    if (!user) return
+    api.get('/tables').then(r => {
+      const names = r.data.map(table => table.name)
+      setTables(names)
+      if (names.length) setSelected(names[0])
+    }).catch(e => setError(e.response?.data?.error || e.message))
+  }, [user])
 
-  useEffect(() => { if (selected) loadData() }, [selected, page, pageSize, sort])
+  useEffect(() => {
+    if (!selected || !user) return
+    setPage(1)
+    setSchema(null)
+    api.get(`/tables/${encodeURIComponent(selected)}/schema`).then(r => setSchema({
+      columns: r.data.map(c => ({
+        name: c.name, type: c.columnType, nullable: c.isNullable === 'YES',
+        primary_key: c.columnKey === 'PRI', autoincrement: c.extra.includes('auto_increment')
+      })),
+      primary_key: r.data.filter(c => c.columnKey === 'PRI').map(c => c.name)
+    })).catch(e => setError(e.response?.data?.error || e.message))
+  }, [selected, user])
+
+  useEffect(() => { if (selected && user) loadData() }, [selected, page, pageSize, sort, user])
 
   async function loadData(customSearch = search) {
     if (!selected) return
     setLoading(true); setError('')
     try {
-      const r = await api.post(`/tables/${encodeURIComponent(selected)}/query`, {
-        page, page_size: pageSize, search: customSearch || null,
-        sort_column: sort.column || null, sort_direction: sort.direction
-      })
-      setRows(r.data.rows); setTotal(r.data.total)
-    } catch (e) { setError(e.response?.data?.detail || e.message) }
+      const r = await api.get(`/tables/${encodeURIComponent(selected)}/rows`, { params: {
+        page, pageSize, search: customSearch,
+        sortColumn: sort.column, sortDirection: sort.direction
+      } })
+      setRows(r.data.data); setTotal(r.data.pagination.total)
+    } catch (e) { setError(e.response?.data?.error || e.message) }
     finally { setLoading(false) }
   }
 
@@ -51,21 +75,53 @@ export default function App() {
 
   async function save(values) {
     try {
-      if (modal.mode === 'insert') await api.post(`/tables/${encodeURIComponent(selected)}`, { values })
+      if (modal.mode === 'insert') await api.post(`/tables/${encodeURIComponent(selected)}/rows`, { values })
       else {
-        const pk = {}; schema.primary_key.forEach(k => pk[k] = modal.row[k])
-        await api.put(`/tables/${encodeURIComponent(selected)}`, { pk, values })
+        const keyColumn = schema.primary_key[0]
+        await api.put(`/tables/${encodeURIComponent(selected)}/rows`, { keyColumn, keyValue: modal.row[keyColumn], values })
       }
       setModal(null); await loadData()
-    } catch (e) { alert(e.response?.data?.detail || e.message) }
+    } catch (e) { alert(e.response?.data?.error || e.message) }
   }
+
+  async function login(event) {
+    event.preventDefault()
+    setError(''); setLoading(true)
+    try {
+      await api.post('/auth/login', { username, password })
+      // Confirm the browser retained the session cookie before loading data.
+      const session = await api.get('/auth/me')
+      setUser(session.data.username); setPassword('')
+    } catch (e) { setError(e.response?.status === 401
+      ? 'Login failed. Check your credentials and that session cookies are allowed.'
+      : e.response?.data?.error || e.message) }
+    finally { setLoading(false) }
+  }
+
+  async function logout() {
+    try {
+      await api.post('/auth/logout')
+      setUser(null); setSelected(''); setSchema(null); setRows([]); setTables([]); setModal(null)
+    } catch (e) { setError(e.response?.data?.error || e.message) }
+  }
+
+  if (checkingSession) return <main>Loading session...</main>
+  if (!user) return <main><form className="modal" onSubmit={login}>
+    <h1>MySQL Data Manager</h1>
+    <div className="form-grid">
+      <label>Username<input autoComplete="username" value={username} onChange={e => setUsername(e.target.value)} required /></label>
+      <label>Password<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required /></label>
+    </div>
+    {error && <div className="error">{error}</div>}
+    <button disabled={loading}>{loading ? 'Signing in...' : 'Sign in'}</button>
+  </form></main>
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return <div className="app-shell">
     <TableSidebar tables={tables} selected={selected} onSelect={setSelected} />
     <main>
-      <header><div><h1>MySQL Data Manager</h1><p>{selected || 'Select a table'}</p></div>{schema && <button onClick={() => setModal({ mode: 'insert' })}>+ Add Record</button>}</header>
+      <header><div><h1>MySQL Data Manager</h1><p>{selected || 'Select a table'}</p></div>{schema && <button onClick={() => setModal({ mode: 'insert' })}>+ Add Record</button>}<button className="secondary" onClick={logout}>Sign out</button></header>
       <div className="toolbar">
         <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && (setPage(1), loadData(search))} placeholder="Search all columns..." />
         <button onClick={() => { setPage(1); loadData(search) }}>Search</button>
@@ -75,7 +131,7 @@ export default function App() {
       {error && <div className="error">{error}</div>}
       <div className="grid-wrap">
         {loading ? <div className="loading">Loading...</div> : <table><thead><tr>{schema?.columns.map(c => <th key={c.name} onClick={() => changeSort(c.name)}>{c.name}{sort.column === c.name ? (sort.direction === 'asc' ? ' ▲' : ' ▼') : ''}</th>)}<th>Action</th></tr></thead>
-        <tbody>{rows.map((row, i) => <tr key={i}>{schema?.columns.map(c => <td key={c.name}>{row[c.name] == null ? <span className="null">NULL</span> : String(row[c.name])}</td>)}<td><button className="small" disabled={!schema?.primary_key?.length} onClick={() => setModal({ mode: 'edit', row })}>Edit</button></td></tr>)}</tbody></table>}
+        <tbody>{rows.map((row, i) => <tr key={i}>{schema?.columns.map(c => <td key={c.name}>{row[c.name] == null ? <span className="null">NULL</span> : String(row[c.name])}</td>)}<td><button className="small" disabled={schema?.primary_key?.length !== 1} onClick={() => setModal({ mode: 'edit', row })}>Edit</button></td></tr>)}</tbody></table>}
       </div>
       <footer><span>{total.toLocaleString()} records</span><div><button className="secondary" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</button><span>Page {page} of {totalPages}</span><button className="secondary" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next</button></div></footer>
     </main>

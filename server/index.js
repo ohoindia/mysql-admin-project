@@ -1,9 +1,8 @@
 const path = require('path');
 const dotenv = require('dotenv');
 
-// Load the server-local environment file for local development and for the
-// Amplify compute bundle. Runtime-provided values take precedence by default.
-dotenv.config({
+// Lambda receives configuration from its environment, never a bundled .env.
+if (!process.env.AWS_LAMBDA_FUNCTION_NAME) dotenv.config({
   path: path.join(__dirname, '.env'),
   quiet: true,
 });
@@ -27,6 +26,31 @@ const isProduction =
 
 app.disable('x-powered-by');
 
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',').map((origin) => origin.trim()).filter(Boolean);
+const cookieSameSite = process.env.COOKIE_SAME_SITE || 'lax';
+if (!['lax', 'strict', 'none'].includes(cookieSameSite)) {
+  throw new Error('COOKIE_SAME_SITE must be lax, strict, or none');
+}
+
+// Check origins before processing requests, including cookie-authenticated writes.
+app.use('/api', (req, res, next) => {
+  const origin = req.get('origin');
+  res.vary('Origin');
+  if (origin) {
+    const sameOrigin = origin === `${req.protocol}://${req.get('host')}`;
+    if (!sameOrigin && !allowedOrigins.includes(origin)) {
+      return res.status(403).json({ error: 'Origin is not allowed.' });
+    }
+    res.set('Access-Control-Allow-Origin', origin);
+    res.set('Access-Control-Allow-Credentials', 'true');
+    res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.set('Access-Control-Allow-Headers', 'Content-Type');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 app.use(
   express.json({
     limit: '2mb',
@@ -35,9 +59,7 @@ app.use(
 
 app.use(cookieParser());
 
-// Amplify sends the application root to the Express compute resource. The
-// production client build is copied to `public` alongside this server, so
-// serve it here while letting API routes fall through to their handlers.
+// Retain static hosting for the existing Docker deployment.
 app.use(express.static(path.join(__dirname, 'public')));
 
 /* =========================================================
@@ -59,6 +81,9 @@ const missingEnv = requiredEnv.filter(
 );
 
 if (missingEnv.length) {
+  if (isProduction) {
+    throw new Error(`Missing environment variables: ${missingEnv.join(', ')}`);
+  }
   console.warn(
     `Missing environment variables: ${missingEnv.join(', ')}`
   );
@@ -84,7 +109,7 @@ const pool = mysql.createPool({
   waitForConnections: true,
 
   connectionLimit: Number(
-    process.env.DB_POOL_SIZE || 5
+    process.env.DB_POOL_SIZE || (process.env.AWS_LAMBDA_FUNCTION_NAME ? 2 : 5)
   ),
 
   queueLimit: 0,
@@ -513,9 +538,9 @@ app.post(
         httpOnly: true,
 
         secure:
-          isProduction,
+          isProduction || cookieSameSite === 'none',
 
-        sameSite: 'lax',
+        sameSite: cookieSameSite,
 
         maxAge:
           SESSION_DURATION,
@@ -557,8 +582,8 @@ app.post(
       {
         httpOnly: true,
         secure:
-          isProduction,
-        sameSite: 'lax',
+          isProduction || cookieSameSite === 'none',
+        sameSite: cookieSameSite,
         path: '/',
       }
     );
@@ -1846,7 +1871,7 @@ app.use(
    START SERVER
 ========================================================= */
 
-app.listen(
+if (require.main === module) app.listen(
   PORT,
   '0.0.0.0',
   () => {
@@ -1862,3 +1887,5 @@ app.listen(
     );
   }
 );
+
+module.exports = app;

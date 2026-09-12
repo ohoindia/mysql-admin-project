@@ -146,6 +146,7 @@ function Login({ onLogin }) {
 }
 
 function App() {
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [tables, setTables] = useState([]);
@@ -421,9 +422,13 @@ function App() {
 
   return (
     <div className="app">
-      <aside className="sidebar">
+      <aside className={`sidebar${navigationOpen ? ' navigation-open' : ''}`}>
         <div className="sidebar-header">
           <h2>MySQL Admin</h2>
+          <button className="mobile-navigation-toggle" aria-expanded={navigationOpen}
+            aria-controls="table-navigation" onClick={() => setNavigationOpen(!navigationOpen)}>
+            {navigationOpen ? 'Close tables' : 'Choose table'}
+          </button>
           <div className="user">
             Signed in as
             <strong>{user}</strong>
@@ -444,12 +449,12 @@ function App() {
           {filteredTables.length} of {tables.length} tables
         </div>
 
-        <div className="table-list">
+        <div className="table-list" id="table-navigation">
           {filteredTables.map((item) => (
             <button
               key={item.name}
               className={table === item.name ? 'active' : ''}
-              onClick={() => selectTable(item.name)}
+              onClick={() => { selectTable(item.name); setNavigationOpen(false); }}
             >
               <span>{item.name}</span>
             </button>
@@ -530,7 +535,7 @@ function App() {
         {table && !loading && (
           <>
             <div className="table-container">
-              <div className="tablewrap">
+              <div className="tablewrap" tabIndex={0} role="region" aria-label="Table records, scroll to view more columns">
                 <table>
                   <thead>
                     <tr>

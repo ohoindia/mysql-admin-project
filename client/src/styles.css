@@ -428,3 +428,99 @@ tbody tr:hover td { background: #f8fafc; }
   .main-content { padding: 10px; }
   .edit-grid { grid-template-columns: 1fr; }
 }
+
+/* Responsive layout shared by phones, tablets, and narrow desktop windows. */
+.mobile-navigation-toggle { display: none; }
+.page-heading { min-width: 0; }
+.page-heading h1, .modal-header h3, .modal-header span,
+.edit-grid label > span, .msg, .error-msg { overflow-wrap: anywhere; }
+.modal-header > div { min-width: 0; }
+.modal-header, .modal-buttons { flex-shrink: 0; }
+.modal-body { min-height: 0; overscroll-behavior: contain; }
+button:focus-visible, input:focus-visible, select:focus-visible, .tablewrap:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+@media (max-width: 1100px) {
+  .page-title, .data-toolbar, .pagination-bar { flex-wrap: wrap; gap: 10px; }
+  .pagination-controls { flex-wrap: wrap; }
+}
+
+@media (max-width: 700px) {
+  html, body, #root { height: auto; min-height: 100%; }
+  body { overflow: auto; }
+  .app { width: 100%; height: auto; min-height: 100dvh; flex-direction: column; overflow: visible; }
+  button, input, select { font-size: 16px; }
+  button, input, select, .actions button, .pagination-controls button,
+  .pagination-controls select, .column-filter input, .edit-grid input,
+  .login-card input, .table-search, .search-box input { min-height: 44px; }
+
+  .sidebar { width: 100%; min-width: 0; height: auto; flex-shrink: 0; }
+  .sidebar-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px 12px;
+    padding: 12px max(12px, env(safe-area-inset-right)) 12px max(12px, env(safe-area-inset-left));
+  }
+  .sidebar-header h2 { margin: 0; font-size: 18px; }
+  .user { grid-column: 1 / -1; flex-direction: row; gap: 6px; flex-wrap: wrap; }
+  .user strong { margin: 0; overflow-wrap: anywhere; }
+  .mobile-navigation-toggle {
+    display: block;
+    padding: 8px 10px;
+    color: white;
+    background: #1f2937;
+    border: 1px solid #4b5563;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+  .sidebar:not(.navigation-open) > :not(.sidebar-header) { display: none; }
+  .table-list { flex: none; max-height: 35dvh; overflow-y: auto; }
+  .table-list button { font-size: 15px; }
+  .main-content {
+    height: auto;
+    min-height: 75dvh;
+    overflow: visible;
+    padding: 12px max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  }
+  .page-title { align-items: flex-start; }
+  .page-heading { width: 100%; }
+  .page-title h1 { font-size: 20px; }
+  .page-actions { width: 100%; }
+  .page-actions button { flex: 1; }
+  .data-toolbar { gap: 8px; }
+  .search-box { flex: 1 0 100%; max-width: none; min-width: 0; }
+  .data-toolbar > button { flex: 1; }
+  .result-count { width: 100%; margin: 0; white-space: normal; }
+  .filters { max-height: none; padding: 10px; }
+  .column-filter { flex: 0 0 180px; }
+  .column-filter label { font-size: 13px; }
+  .table-container { flex: none; height: 55dvh; min-height: 240px; }
+  .tablewrap { overscroll-behavior: contain; }
+  table { font-size: 14px; }
+  th, td { padding: 10px; }
+  /* Keep actions in the scrollable table so they don't cover most of a phone screen. */
+  .actions, .actions-header { right: auto; box-shadow: none; }
+  .actions { position: static; }
+  .actions button { font-size: 14px; padding: 8px 12px; }
+  .pagination-bar { align-items: stretch; }
+  .pagination-info { width: 100%; font-size: 14px; }
+  .pagination-controls { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .pagination-controls > * { min-width: 0; padding: 0 6px; font-size: 14px; }
+
+  .login-page { height: auto; min-height: 100dvh; padding: 16px; }
+  .login-card { padding: 24px 20px; }
+  .login-card h1 { font-size: 24px; }
+  .login-card > button { width: 100%; }
+  .modal { padding: 8px; }
+  .modal .card { width: 100%; max-height: calc(100dvh - 16px); }
+  .modal-header { padding: 12px; gap: 8px; }
+  .modal-close { min-width: 44px; flex-shrink: 0; }
+  .modal-body { padding: 12px; }
+  .edit-grid { grid-template-columns: minmax(0, 1fr); }
+  .edit-grid input { width: 100%; }
+  .modal-buttons { padding: 12px 12px max(12px, env(safe-area-inset-bottom)); }
+  .modal-buttons button { flex: 1; }
+}

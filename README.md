@@ -54,7 +54,7 @@ function's environment variables.
    | SecurityGroupIds | Comma-separated Lambda security group IDs; required with subnets |
    | Confirm changes before deploy | `Y` |
    | Allow SAM CLI IAM role creation | `Y` |
-   | ApiFunction has no authentication, is this okay? | `Y`; Express enforces login and session cookies |
+   | ApiFunction has no authentication, is this okay? | `Y`; Express enforces login and bearer tokens |
    | Disable rollback | `N` |
    | Save arguments to configuration file | `Y`; keep the default file/environment |
 
@@ -77,13 +77,12 @@ function's environment variables.
    | `DB_NAME` | Database name |
    | `ADMIN_USER` | Application login username |
    | `ADMIN_PASSWORD` | Application login password |
-   | `COOKIE_SECRET` | Long random secret; generate it using the command below |
+   | `SESSION_SECRET` | Long random signing secret; generate it using the command below |
    | `CORS_ORIGINS` | Exact Amplify HTTPS origin, e.g. `https://main.APP_ID.amplifyapp.com`, without a trailing slash |
-   | `COOKIE_SAME_SITE` | `none` for Amplify and API Gateway default domains |
    | `DB_POOL_SIZE` | `2` |
    | `ALLOWED_TABLES` | Optional comma-separated table names; omit to allow all tables |
 
-   Generate a cookie secret locally:
+   Generate a signing secret locally:
 
    ```powershell
    node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
@@ -124,13 +123,14 @@ function's environment variables.
    **Lambda > Monitor > View CloudWatch logs**, environment variables, and
    database networking.
 
-The default domain setup requires `COOKIE_SAME_SITE=none` and HTTPS. Browsers
-that block third-party cookies may still block login sessions. For reliable
-browser support, configure related custom domains such as `admin.example.com`
-for Amplify and `api.example.com` for API Gateway, use `COOKIE_SAME_SITE=lax`,
-and update `CORS_ORIGINS` and `VITE_API_URL`. Custom domains and DNS are configured
-separately. Add any authorized preview origins explicitly to `CORS_ORIGINS`,
-separated by commas.
+Login returns a signed bearer token valid for 12 hours. The client stores it in
+`sessionStorage` (per tab, survives reloads) and sends `Authorization: Bearer ...`
+on API requests. No cookies or custom domains are required, including on mobile.
+Closing the tab ends the stored session. A 401 clears the token and requires login.
+Logout removes the browser token; a copied token remains valid until expiry or
+signing-secret rotation. Keep tokens out of logs and URLs. Session storage is
+accessible to JavaScript on the client origin, so prevent script injection.
+CORS allows the Authorization header only for configured browser origins.
 
 The client currently uses only the root URL, so no SPA rewrite is required.
 Composite primary key tables can be browsed and inserted into, but editing is
@@ -149,7 +149,7 @@ to Express on port 3000. No client environment file is required locally.
 
 Validation: `npm test --prefix server`, `npm run build --prefix client`, and
 `sam validate --lint`. Lambda tests use a stub database and exercise API Gateway
-v2 requests, origin checks, login, session cookies, logout, and protected routes.
+v2 requests, origin checks, login, bearer tokens, logout, and protected routes.
 
 ## Local Docker run
 
@@ -161,7 +161,7 @@ Copy-Item .env.docker.example .env
 
 Edit `.env` with your database connection values. For RDS, set `DB_HOST` to
 your RDS endpoint. Set `ADMIN_USER` and `ADMIN_PASSWORD` for the application
-login, and replace `COOKIE_SECRET` with a long random secret. These login
+login, and replace `SESSION_SECRET` with a long random secret. These login
 credentials are separate from the database credentials.
 
 Build and run:
@@ -196,15 +196,13 @@ Compose uses the same `.env` file and exposes http://localhost:8080.
 - Missing environment variables: populate all values in `.env.docker.example`.
 - Database connection failure: check credentials and network access to the
   database host on port 3306, including RDS security group rules.
-- Login cookies: production uses secure cookies. Use HTTPS for deployed access.
-  For local HTTP testing only, you can add `-e NODE_ENV=development` to the
-  `docker run` command if your browser does not retain the session cookie.
+- Unauthorized requests: sign in again and verify an Authorization header is sent.
 
 ## Container deployment alternative
 
 The image listens on container port `3000`; configure your hosting service
 accordingly. Provide DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, ADMIN_USER,
-ADMIN_PASSWORD, and COOKIE_SECRET as runtime environment variables or secrets.
+ADMIN_PASSWORD, and SESSION_SECRET as runtime environment variables or secrets.
 For private RDS, the hosting service needs network access to its VPC and the
 RDS security group must allow the application's connection on port 3306.
 
@@ -248,7 +246,7 @@ and re-enter all variables through the Lambda console before testing.
 
 For environment-only changes, edit the existing variables in **Lambda ?
 Configuration > Environment variables > Edit > Save**; no code build or upload
-is required. Changing `COOKIE_SECRET` invalidates existing sessions. Do not
+is required. Changing `SESSION_SECRET` invalidates existing sessions. Do not
 commit environment values to Git.
 
 Client-only changes need no Lambda deployment. Server updates normally keep the
@@ -256,3 +254,18 @@ same API URL, so no Amplify setting change is needed. If the API URL changes,
 update `VITE_API_URL` in Amplify and trigger a client build. When a change affects
 both client and server, deploy a backward-compatible server update before the
 client change reaches `main` so Amplify's automatic deployment can use it.
+
+## Migrating the existing deployment from cookies to bearer tokens
+
+1. Set a new strong `SESSION_SECRET` in Lambda environment variables. The server
+   accepts the old `COOKIE_SECRET` as a compatibility fallback, but rotate to a
+   fresh secret for this migration. Remove `COOKIE_SAME_SITE`; it is unused.
+2. Keep `CORS_ORIGINS=https://main.d1zupn0rwkco30.amplifyapp.com` and keep Amplify's
+   `VITE_API_URL=https://4ow9xllfw2.execute-api.ap-south-1.amazonaws.com/api`.
+3. Run `npm ci --prefix server`, `npm test --prefix server`, `sam build`, and
+   `sam deploy`, stopping on any failure. Lambda must be deployed for this change.
+4. Push the client changes to `main` and wait for Amplify's automatic build.
+   Coordinate these deployments: the old client cannot use the new token login.
+5. Refresh the app and sign in again on desktop/mobile. Login should return a
+   token and subsequent requests should carry Authorization and return 200.
+   Existing cookie sessions are deliberately rejected and need a new login.

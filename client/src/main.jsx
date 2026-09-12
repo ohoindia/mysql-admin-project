@@ -1,29 +1,34 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
+import { getToken, saveToken, clearToken } from './services/session';
 
 // Vite embeds the Amplify API URL during the build. Keep /api for local/Docker.
 const apiBaseUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '');
 
 const api = async (url, options = {}) => {
   const endpoint = `${apiBaseUrl}${url.replace(/^\/api(?=\/|$)/, '')}`;
+  const token = getToken();
   const response = await fetch(endpoint, {
-    credentials: 'include',
+    ...options,
+    credentials: 'omit',
     headers: {
       'Content-Type': 'application/json',
       ...(options.headers || {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    ...options,
   });
 
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    if (response.status === 401) clearToken();
     const error = new Error(data.error || 'Request failed');
     error.status = response.status;
     throw error;
   }
 
+  if (url === '/api/auth/login') saveToken(data.token);
   return data;
 };
 
@@ -386,6 +391,7 @@ function App() {
   };
 
   const logout = async () => {
+    clearToken();
     await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
     setUser(null);
     setTables([]);

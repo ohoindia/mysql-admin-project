@@ -4,19 +4,20 @@ const assert = require('node:assert/strict');
 Object.assign(process.env, {
   AWS_LAMBDA_FUNCTION_NAME: 'local-test', NODE_ENV: 'production',
   DB_HOST: 'unused', DB_USER: 'test', DB_PASSWORD: 'test', DB_NAME: 'test',
-  ADMIN_USER: 'admin', ADMIN_PASSWORD: 'test-password', COOKIE_SECRET: 'test-secret',
-  CORS_ORIGINS: 'https://main.example.amplifyapp.com', COOKIE_SAME_SITE: 'none',
+  ADMIN_USER: 'admin', ADMIN_PASSWORD: 'test-password', SESSION_SECRET: 'test-secret',
+  CORS_ORIGINS: 'https://main.example.amplifyapp.com',
 });
 // Exercise the real Express/Lambda adapter without connecting to a database.
 require('mysql2/promise').createPool = () => ({ query: async () => [[{ value: 1 }]] });
 const { handler } = require('../lambda');
 const origin = process.env.CORS_ORIGINS;
 
-function invoke(method, path, { body, cookies, requestOrigin = origin } = {}) {
+function invoke(method, path, { body, cookies, token, requestOrigin = origin } = {}) {
   return handler({
     version: '2.0', routeKey: 'ANY /api/{proxy+}', rawPath: path,
     rawQueryString: '', headers: {
       host: 'example.execute-api.us-east-1.amazonaws.com',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
       'content-type': 'application/json', origin: requestOrigin,
     }, cookies,
     requestContext: { http: { method, path, sourceIp: '127.0.0.1', protocol: 'HTTP/1.1' } },
@@ -24,14 +25,14 @@ function invoke(method, path, { body, cookies, requestOrigin = origin } = {}) {
   }, {});
 }
 
-test('preflight permits the configured client and credentials', async () => {
+test('preflight permits the configured client and Authorization header', async () => {
   const response = await invoke('OPTIONS', '/api/auth/login');
   assert.equal(response.statusCode, 204);
   assert.equal(response.headers['access-control-allow-origin'], origin);
-  assert.equal(response.headers['access-control-allow-credentials'], 'true');
+  assert.match(response.headers['access-control-allow-headers'], /Authorization/);
 });
 
-test('untrusted origins cannot log in or perform cookie-authenticated writes', async () => {
+test('untrusted origins cannot log in or perform authenticated writes', async () => {
   for (const method of ['OPTIONS', 'POST', 'PUT', 'DELETE']) {
     const response = await invoke(method, '/api/auth/login', { requestOrigin: 'https://untrusted.example' });
     assert.equal(response.statusCode, 403);
@@ -44,20 +45,37 @@ test('protected routes reject missing and tampered cookies', async () => {
   assert.equal((await invoke('GET', '/api/auth/me', { cookies: ['mysql_admin_session=bad'] })).statusCode, 401);
 });
 
-test('login cookies survive the API Gateway v2 round trip and logout clears them', async () => {
+test('login returns a bearer token that authenticates API Gateway v2 requests without cookies', async () => {
   const login = await invoke('POST', '/api/auth/login', { body: { username: 'admin', password: 'test-password' } });
   assert.equal(login.statusCode, 200);
-  assert.match(login.cookies[0], /HttpOnly/);
-  assert.match(login.cookies[0], /Secure/);
-  assert.match(login.cookies[0], /SameSite=None/);
-  const cookies = [login.cookies[0].split(';')[0]];
-  const me = await invoke('GET', '/api/auth/me', { cookies });
+  assert.deepEqual(login.cookies, []);
+  assert.equal(login.headers['set-cookie'], undefined);
+  assert.equal(login.headers['cache-control'], 'no-store');
+  const { token, expiresIn } = JSON.parse(login.body);
+  assert.equal(expiresIn, 43200);
+  const me = await invoke('GET', '/api/auth/me', { token });
   assert.equal(me.statusCode, 200);
   assert.deepEqual(JSON.parse(me.body), { username: 'admin' });
-  const logout = await invoke('POST', '/api/auth/logout', { cookies });
+  assert.equal((await invoke('GET', '/api/tables', { token })).statusCode, 200);
+  assert.equal((await invoke('GET', '/api/auth/me', { cookies: [`mysql_admin_session=${token}`] })).statusCode, 401);
+  const logout = await invoke('POST', '/api/auth/logout', { token });
   assert.equal(logout.statusCode, 200);
-  assert.match(logout.cookies[0], /Expires=Thu, 01 Jan 1970/);
-  assert.match(logout.cookies[0], /SameSite=None/);
+  assert.deepEqual(logout.cookies, []);
+});
+
+test('expired, future, tampered, and legacy cookie tokens are rejected', async () => {
+  const crypto = require('node:crypto');
+  for (const [time, prefix, secret] of [
+    [Date.now() - 43200001, 'bearer-v1:', 'test-secret'],
+    [Date.now() + 60000, 'bearer-v1:', 'test-secret'],
+    [Date.now(), 'bearer-v1:', 'wrong-secret'],
+    [Date.now(), '', 'test-secret'],
+  ]) {
+    const payload = `admin:${time}`;
+    const signature = crypto.createHmac('sha256', secret).update(prefix + payload).digest('hex');
+    const token = Buffer.from(`${payload}:${signature}`).toString('base64');
+    assert.equal((await invoke('GET', '/api/auth/me', { token })).statusCode, 401);
+  }
 });
 
 test('invalid credentials do not issue a session', async () => {

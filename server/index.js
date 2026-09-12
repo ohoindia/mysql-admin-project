@@ -9,7 +9,6 @@ if (!process.env.AWS_LAMBDA_FUNCTION_NAME) dotenv.config({
 
 const express = require('express');
 const mysql = require('mysql2/promise');
-const cookieParser = require('cookie-parser');
 const crypto = require('crypto');
 
 const app = express();
@@ -28,24 +27,20 @@ app.disable('x-powered-by');
 
 const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .split(',').map((origin) => origin.trim()).filter(Boolean);
-const cookieSameSite = process.env.COOKIE_SAME_SITE || 'lax';
-if (!['lax', 'strict', 'none'].includes(cookieSameSite)) {
-  throw new Error('COOKIE_SAME_SITE must be lax, strict, or none');
-}
-
-// Check origins before processing requests, including cookie-authenticated writes.
+// Restrict browser origins before processing API requests.
 app.use('/api', (req, res, next) => {
   const origin = req.get('origin');
   res.vary('Origin');
+  res.set('Cache-Control', 'no-store');
   if (origin) {
     const sameOrigin = origin === `${req.protocol}://${req.get('host')}`;
     if (!sameOrigin && !allowedOrigins.includes(origin)) {
       return res.status(403).json({ error: 'Origin is not allowed.' });
     }
     res.set('Access-Control-Allow-Origin', origin);
-    res.set('Access-Control-Allow-Credentials', 'true');
+    res.set('Cache-Control', 'no-store');
     res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.set('Access-Control-Allow-Headers', 'Content-Type');
+    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -57,7 +52,7 @@ app.use(
   })
 );
 
-app.use(cookieParser());
+
 
 // Retain static hosting for the existing Docker deployment.
 app.use(express.static(path.join(__dirname, 'public')));
@@ -73,7 +68,7 @@ const requiredEnv = [
   'DB_NAME',
   'ADMIN_USER',
   'ADMIN_PASSWORD',
-  'COOKIE_SECRET',
+  ...(process.env.SESSION_SECRET ? [] : ['COOKIE_SECRET']),
 ];
 
 const missingEnv = requiredEnv.filter(
@@ -185,8 +180,8 @@ const validateTable = (tableName) => {
    SESSION / AUTHENTICATION
 ========================================================= */
 
-const SESSION_COOKIE =
-  'mysql_admin_session';
+// COOKIE_SECRET remains a migration fallback for existing Lambda settings.
+const sessionSecret = process.env.SESSION_SECRET || process.env.COOKIE_SECRET || 'development-secret';
 
 const SESSION_DURATION =
   12 * 60 * 60 * 1000;
@@ -203,10 +198,9 @@ const createSession = (username) => {
   const signature = crypto
     .createHmac(
       'sha256',
-      process.env.COOKIE_SECRET ||
-        'development-secret'
+      sessionSecret
     )
-    .update(payload)
+    .update(`bearer-v1:${payload}`)
     .digest('hex');
 
   return Buffer.from(
@@ -246,10 +240,9 @@ const verifySession = (value) => {
     const expectedSignature = crypto
       .createHmac(
         'sha256',
-        process.env.COOKIE_SECRET ||
-          'development-secret'
+        sessionSecret
       )
-      .update(payload)
+      .update(`bearer-v1:${payload}`)
       .digest('hex');
 
     /*
@@ -282,7 +275,7 @@ const verifySession = (value) => {
       Number(timestamp);
 
     if (
-      !Number.isFinite(sessionTime)
+      !Number.isFinite(sessionTime) || sessionTime > Date.now() || username !== process.env.ADMIN_USER
     ) {
       return null;
     }
@@ -308,8 +301,7 @@ const requireAuth = (
   res,
   next
 ) => {
-  const session =
-    req.cookies[SESSION_COOKIE];
+  const session = /^Bearer ([A-Za-z0-9+/=]+)$/i.exec(req.get('authorization') || '')?.[1];
 
   const username =
     verifySession(session);
@@ -531,25 +523,10 @@ app.post(
     const session =
       createSession(username);
 
-    res.cookie(
-      SESSION_COOKIE,
-      session,
-      {
-        httpOnly: true,
-
-        secure:
-          isProduction || cookieSameSite === 'none',
-
-        sameSite: cookieSameSite,
-
-        maxAge:
-          SESSION_DURATION,
-
-        path: '/',
-      }
-    );
-
+    res.set('Cache-Control', 'no-store');
     res.json({
+      token: session,
+      expiresIn: SESSION_DURATION / 1000,
       username,
     });
   }
@@ -577,17 +554,7 @@ app.get(
 app.post(
   '/api/auth/logout',
   (req, res) => {
-    res.clearCookie(
-      SESSION_COOKIE,
-      {
-        httpOnly: true,
-        secure:
-          isProduction || cookieSameSite === 'none',
-        sameSite: cookieSameSite,
-        path: '/',
-      }
-    );
-
+    // The client discards its token; stateless tokens expire after 12 hours.
     res.json({
       success: true,
     });

@@ -89,11 +89,11 @@ export default function App() {
     setError(''); setLoading(true)
     try {
       await api.post('/auth/login', { username, password })
-      // Confirm the browser retained the session cookie before loading data.
+      // Confirm the bearer token authenticates before loading data.
       const session = await api.get('/auth/me')
       setUser(session.data.username); setPassword('')
     } catch (e) { setError(e.response?.status === 401
-      ? 'Login failed. Check your credentials and that session cookies are allowed.'
+      ? 'Login failed. Check your credentials and sign in again.'
       : e.response?.data?.error || e.message) }
     finally { setLoading(false) }
   }

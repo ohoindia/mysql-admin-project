@@ -2,8 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
 
+// Vite embeds the Amplify API URL during the build. Keep /api for local/Docker.
+const apiBaseUrl = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, '');
+
 const api = async (url, options = {}) => {
-  const response = await fetch(url, {
+  const endpoint = `${apiBaseUrl}${url.replace(/^\/api(?=\/|$)/, '')}`;
+  const response = await fetch(endpoint, {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',

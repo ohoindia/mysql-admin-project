@@ -1,16 +1,10 @@
 services:
-  mysql-admin:
-    build:
-      context: .
-      dockerfile: Dockerfile
+  app:
+    build: .
+    image: mysql-admin-app
     ports:
-      - "8080:8080"
+      - "8080:3000"
+    env_file:
+      - ./.env
     environment:
-      PORT: 8080
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT:-3306}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
-    restart: unless-stopped
+      PORT: 3000

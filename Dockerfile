@@ -1,30 +1,17 @@
-# ---------- Build React frontend ----------
-FROM node:22-bookworm-slim AS frontend-build
-WORKDIR /app/frontend
-
-COPY frontend/package*.json ./
+FROM node:20-alpine AS client-build
+WORKDIR /app/client
+COPY client/package*.json ./
 RUN npm install
-
-COPY frontend/ ./
-# Use same-origin /api in production so frontend and backend work from one URL.
-ENV VITE_API_URL=/api
+COPY client ./
 RUN npm run build
 
-# ---------- Run FastAPI + serve React ----------
-FROM python:3.12-slim AS runtime
+FROM node:20-alpine
 WORKDIR /app
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PORT=8080
-
-COPY backend/requirements.txt ./backend/requirements.txt
-RUN pip install --no-cache-dir -r backend/requirements.txt
-
-COPY backend/ ./backend/
-COPY --from=frontend-build /app/frontend/dist ./frontend/dist
-
-WORKDIR /app/backend
-EXPOSE 8080
-
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+COPY server/package*.json ./server/
+RUN cd server && npm install --omit=dev
+COPY server ./server
+COPY --from=client-build /app/client/dist ./server/public
+ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node","server/index.js"]

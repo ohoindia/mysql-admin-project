@@ -1,23 +1,23 @@
-import { useState } from 'react';
-import { request as api } from '../services/api';
+import { useState } from "react";
+import { request as api } from "../services/api";
 
 export default function Login({ onLogin }) {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [message, setMessage] = useState('');
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
   const submit = async (event) => {
     event.preventDefault();
     setLoading(true);
-    setMessage('');
+    setMessage("");
 
     try {
-      await api('/api/auth/login', {
-        method: 'POST',
+      await api("/api/auth/login", {
+        method: "POST",
         body: JSON.stringify({ username, password }),
       });
-      const session = await api('/api/auth/me');
+      const session = await api("/api/auth/me");
       onLogin(session);
     } catch (error) {
       setMessage(error.message);
@@ -56,10 +56,9 @@ export default function Login({ onLogin }) {
         </label>
 
         <button className="primary" type="submit" disabled={loading}>
-          {loading ? 'Signing in...' : 'Sign in'}
+          {loading ? "Signing in..." : "Sign in"}
         </button>
       </form>
     </div>
   );
 }
-

@@ -46,17 +46,17 @@ function's environment variables.
 
    Answer the guided prompts:
 
-   | Prompt | Value |
-   |---|---|
-   | Stack Name | `mysql-admin-api` |
-   | AWS Region | Your database region, for example `ap-south-1` |
-   | SubnetIds | Comma-separated private subnet IDs, or empty as described above |
-   | SecurityGroupIds | Comma-separated Lambda security group IDs; required with subnets |
-   | Confirm changes before deploy | `Y` |
-   | Allow SAM CLI IAM role creation | `Y` |
-   | ApiFunction has no authentication, is this okay? | `Y`; Express enforces login and bearer tokens |
-   | Disable rollback | `N` |
-   | Save arguments to configuration file | `Y`; keep the default file/environment |
+   | Prompt                                           | Value                                                            |
+   | ------------------------------------------------ | ---------------------------------------------------------------- |
+   | Stack Name                                       | `mysql-admin-api`                                                |
+   | AWS Region                                       | Your database region, for example `ap-south-1`                   |
+   | SubnetIds                                        | Comma-separated private subnet IDs, or empty as described above  |
+   | SecurityGroupIds                                 | Comma-separated Lambda security group IDs; required with subnets |
+   | Confirm changes before deploy                    | `Y`                                                              |
+   | Allow SAM CLI IAM role creation                  | `Y`                                                              |
+   | ApiFunction has no authentication, is this okay? | `Y`; Express enforces login and bearer tokens                    |
+   | Disable rollback                                 | `N`                                                              |
+   | Save arguments to configuration file             | `Y`; keep the default file/environment                           |
 
    Save the stack outputs `FunctionName` and `ApiUrl`. The function will reject
    requests until the required environment variables are configured in step 4.
@@ -65,22 +65,23 @@ function's environment variables.
 
 4. **Set Lambda environment variables.** In AWS Console, select the deployment
    region, open **Lambda > Functions > the FunctionName output > Configuration
+
    > Environment variables > Edit**, and add these values:
 
-   | Variable | Value |
-   |---|---|
-   | `NODE_ENV` | `production` |
-   | `DB_HOST` | MySQL/RDS hostname without `https://` |
-   | `DB_PORT` | `3306`, or your database port |
-   | `DB_USER` | Database username |
-   | `DB_PASSWORD` | Database password |
-   | `DB_NAME` | Database name |
-   | `ADMIN_USER` | Application login username |
-   | `SUPER_USER` | Optional additional login username with access to all tables, bypassing `ALLOWED_TABLES` |
-   | `ADMIN_PASSWORD` | Application login password shared by `ADMIN_USER` and `SUPER_USER` |
-   | `SESSION_SECRET` | Long random signing secret; generate it using the command below |
-   | `CORS_ORIGINS` | Exact Amplify HTTPS origin, e.g. `https://main.APP_ID.amplifyapp.com`, without a trailing slash |
-   | `DB_POOL_SIZE` | `2` |
+   | Variable         | Value                                                                                                           |
+   | ---------------- | --------------------------------------------------------------------------------------------------------------- |
+   | `NODE_ENV`       | `production`                                                                                                    |
+   | `DB_HOST`        | MySQL/RDS hostname without `https://`                                                                           |
+   | `DB_PORT`        | `3306`, or your database port                                                                                   |
+   | `DB_USER`        | Database username                                                                                               |
+   | `DB_PASSWORD`    | Database password                                                                                               |
+   | `DB_NAME`        | Database name                                                                                                   |
+   | `ADMIN_USER`     | Application login username                                                                                      |
+   | `SUPER_USER`     | Optional additional login username with access to all tables, bypassing `ALLOWED_TABLES`                        |
+   | `ADMIN_PASSWORD` | Application login password shared by `ADMIN_USER` and `SUPER_USER`                                              |
+   | `SESSION_SECRET` | Long random signing secret; generate it using the command below                                                 |
+   | `CORS_ORIGINS`   | Exact Amplify HTTPS origin, e.g. `https://main.APP_ID.amplifyapp.com`, without a trailing slash                 |
+   | `DB_POOL_SIZE`   | `2`                                                                                                             |
    | `ALLOWED_TABLES` | Optional comma-separated table names for `ADMIN_USER`; omit to allow all tables. Does not restrict `SUPER_USER` |
 
    Generate a signing secret locally:
@@ -116,7 +117,7 @@ function's environment variables.
    Expected response:
 
    ```json
-   {"status":"OK","database":"connected"}
+   { "status": "OK", "database": "connected" }
    ```
 
    Open the Amplify app, sign in with `ADMIN_USER` and `ADMIN_PASSWORD`, and

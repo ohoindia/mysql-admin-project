@@ -1,12 +1,14 @@
 // Only the latest read may update the UI. Writes deliberately are not retried.
 export function createLatestRequest() {
-  let controller
+  let controller;
   return {
     start() {
-      controller?.abort()
-      controller = new AbortController()
-      return controller
+      controller?.abort();
+      controller = new AbortController();
+      return controller;
     },
-    cancel() { controller?.abort() },
-  }
+    cancel() {
+      controller?.abort();
+    },
+  };
 }

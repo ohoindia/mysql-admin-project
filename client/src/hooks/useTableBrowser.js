@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { request as api } from '../services/api';
-import { createLatestRequest } from '../utils/requests';
+import { useEffect, useRef, useState } from "react";
+import { request as api } from "../services/api";
+import { createLatestRequest } from "../utils/requests";
 
 export default function useTableBrowser() {
   const requests = useRef(createLatestRequest());
@@ -8,7 +8,7 @@ export default function useTableBrowser() {
     const current = requests.current;
     return () => current.cancel();
   }, []);
-  const [table, setTable] = useState('');
+  const [table, setTable] = useState("");
   const [schema, setSchema] = useState([]);
   const [rows, setRows] = useState([]);
 
@@ -16,11 +16,11 @@ export default function useTableBrowser() {
   const [adding, setAdding] = useState(false);
   const [newRow, setNewRow] = useState({});
 
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const [dataSearch, setDataSearch] = useState('');
+  const [dataSearch, setDataSearch] = useState("");
   const [filters, setFilters] = useState({});
 
   const [page, setPage] = useState(1);
@@ -28,10 +28,12 @@ export default function useTableBrowser() {
   const [totalRows, setTotalRows] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
-  const [sortColumn, setSortColumn] = useState('');
-  const [sortDirection, setSortDirection] = useState('ASC');
+  const [sortColumn, setSortColumn] = useState("");
+  const [sortDirection, setSortDirection] = useState("ASC");
 
-  const handleError = (err) => { if (err.code !== 'ERR_CANCELED') setError(err.message); };
+  const handleError = (err) => {
+    if (err.code !== "ERR_CANCELED") setError(err.message);
+  };
 
   const load = async (
     selectedTable,
@@ -40,14 +42,17 @@ export default function useTableBrowser() {
     currentFilters = filters,
     requestedPageSize = pageSize,
     requestedSortColumn = sortColumn,
-    requestedSortDirection = sortDirection
+    requestedSortDirection = sortDirection,
   ) => {
     const controller = requests.current.start();
     setLoading(true);
     setTable(selectedTable);
-    if (selectedTable !== table) { setSchema([]); setRows([]); }
-    setMessage('');
-    setError('');
+    if (selectedTable !== table) {
+      setSchema([]);
+      setRows([]);
+    }
+    setMessage("");
+    setError("");
 
     try {
       const query = new URLSearchParams({
@@ -56,27 +61,35 @@ export default function useTableBrowser() {
       });
 
       if (searchText?.trim()) {
-        query.set('search', searchText.trim());
+        query.set("search", searchText.trim());
       }
 
       if (requestedSortColumn) {
-        query.set('sortColumn', requestedSortColumn);
-        query.set('sortDirection', requestedSortDirection || 'ASC');
+        query.set("sortColumn", requestedSortColumn);
+        query.set("sortDirection", requestedSortDirection || "ASC");
       }
 
       const activeFilters = Object.fromEntries(
         Object.entries(currentFilters || {}).filter(
-          ([, value]) => value !== null && value !== undefined && String(value).trim() !== ''
-        )
+          ([, value]) =>
+            value !== null &&
+            value !== undefined &&
+            String(value).trim() !== "",
+        ),
       );
 
       if (Object.keys(activeFilters).length > 0) {
-        query.set('filters', JSON.stringify(activeFilters));
+        query.set("filters", JSON.stringify(activeFilters));
       }
 
       const [tableSchema, result] = await Promise.all([
-        api(`/api/tables/${encodeURIComponent(selectedTable)}/schema`, { signal: controller.signal }),
-        api(`/api/tables/${encodeURIComponent(selectedTable)}/rows?${query.toString()}`, { signal: controller.signal }),
+        api(`/api/tables/${encodeURIComponent(selectedTable)}/schema`, {
+          signal: controller.signal,
+        }),
+        api(
+          `/api/tables/${encodeURIComponent(selectedTable)}/rows?${query.toString()}`,
+          { signal: controller.signal },
+        ),
       ]);
 
       if (controller.signal.aborted) return;
@@ -93,19 +106,19 @@ export default function useTableBrowser() {
   };
 
   const selectTable = async (tableName) => {
-    setDataSearch('');
+    setDataSearch("");
     setFilters({});
     setPage(1);
     setEditing(null);
     setAdding(false);
     setNewRow({});
-    setSortColumn('');
-    setSortDirection('ASC');
+    setSortColumn("");
+    setSortDirection("ASC");
 
-    await load(tableName, 1, '', {}, pageSize, '', 'ASC');
+    await load(tableName, 1, "", {}, pageSize, "", "ASC");
   };
 
-  const primaryKeys = schema.filter(column => column.columnKey === 'PRI');
+  const primaryKeys = schema.filter((column) => column.columnKey === "PRI");
   const primaryKey = primaryKeys.length === 1 ? primaryKeys[0].name : undefined;
 
   const performSearch = () => {
@@ -114,14 +127,15 @@ export default function useTableBrowser() {
   };
 
   const clearSearch = () => {
-    setDataSearch('');
+    setDataSearch("");
     setFilters({});
     setPage(1);
-    load(table, 1, '', {}, pageSize, sortColumn, sortDirection);
+    load(table, 1, "", {}, pageSize, sortColumn, sortDirection);
   };
 
   const handleSort = async (columnName) => {
-    const direction = sortColumn === columnName && sortDirection === 'ASC' ? 'DESC' : 'ASC';
+    const direction =
+      sortColumn === columnName && sortDirection === "ASC" ? "DESC" : "ASC";
 
     setSortColumn(columnName);
     setSortDirection(direction);
@@ -134,8 +148,13 @@ export default function useTableBrowser() {
     const initialValues = {};
 
     schema.forEach((column) => {
-      if (String(column.extra || '').toLowerCase().includes('auto_increment')) return;
-      initialValues[column.name] = '';
+      if (
+        String(column.extra || "")
+          .toLowerCase()
+          .includes("auto_increment")
+      )
+        return;
+      initialValues[column.name] = "";
     });
 
     setNewRow(initialValues);
@@ -143,20 +162,28 @@ export default function useTableBrowser() {
   };
 
   const insertRow = async () => {
-    setError('');
-    setMessage('');
+    setError("");
+    setMessage("");
 
     try {
       await api(`/api/tables/${encodeURIComponent(table)}/rows`, {
-        method: 'POST',
+        method: "POST",
         body: JSON.stringify({ values: newRow }),
       });
 
       setAdding(false);
       setNewRow({});
 
-      await load(table, 1, dataSearch, filters, pageSize, sortColumn, sortDirection);
-      setMessage('New row inserted successfully.');
+      await load(
+        table,
+        1,
+        dataSearch,
+        filters,
+        pageSize,
+        sortColumn,
+        sortDirection,
+      );
+      setMessage("New row inserted successfully.");
     } catch (err) {
       handleError(err);
     }
@@ -165,8 +192,8 @@ export default function useTableBrowser() {
   const save = async () => {
     if (!editing || !primaryKey) return;
 
-    setError('');
-    setMessage('');
+    setError("");
+    setMessage("");
 
     try {
       const keyValue = editing.original[primaryKey];
@@ -174,13 +201,21 @@ export default function useTableBrowser() {
       delete values[primaryKey];
 
       await api(`/api/tables/${encodeURIComponent(table)}/rows`, {
-        method: 'PUT',
+        method: "PUT",
         body: JSON.stringify({ keyColumn: primaryKey, keyValue, values }),
       });
 
       setEditing(null);
-      await load(table, page, dataSearch, filters, pageSize, sortColumn, sortDirection);
-      setMessage('Updated successfully.');
+      await load(
+        table,
+        page,
+        dataSearch,
+        filters,
+        pageSize,
+        sortColumn,
+        sortDirection,
+      );
+      setMessage("Updated successfully.");
     } catch (err) {
       handleError(err);
     }
@@ -190,26 +225,72 @@ export default function useTableBrowser() {
     if (!primaryKey) return;
 
     const confirmed = window.confirm(
-      `Delete row where ${primaryKey} = ${row[primaryKey]}?`
+      `Delete row where ${primaryKey} = ${row[primaryKey]}?`,
     );
     if (!confirmed) return;
 
-    setError('');
-    setMessage('');
+    setError("");
+    setMessage("");
 
     try {
       await api(`/api/tables/${encodeURIComponent(table)}/rows`, {
-        method: 'DELETE',
-        body: JSON.stringify({ keyColumn: primaryKey, keyValue: row[primaryKey] }),
+        method: "DELETE",
+        body: JSON.stringify({
+          keyColumn: primaryKey,
+          keyValue: row[primaryKey],
+        }),
       });
 
       const targetPage = rows.length === 1 && page > 1 ? page - 1 : page;
-      await load(table, targetPage, dataSearch, filters, pageSize, sortColumn, sortDirection);
-      setMessage('Deleted successfully.');
+      await load(
+        table,
+        targetPage,
+        dataSearch,
+        filters,
+        pageSize,
+        sortColumn,
+        sortDirection,
+      );
+      setMessage("Deleted successfully.");
     } catch (err) {
       handleError(err);
     }
   };
 
-  return { table, schema, rows, editing, setEditing, adding, setAdding, newRow, setNewRow, message, error, loading, dataSearch, setDataSearch, filters, setFilters, page, setPage, pageSize, setPageSize, totalRows, totalPages, sortColumn, sortDirection, primaryKey, load, selectTable, performSearch, clearSearch, handleSort, openAdd, insertRow, save, remove };
+  return {
+    table,
+    schema,
+    rows,
+    editing,
+    setEditing,
+    adding,
+    setAdding,
+    newRow,
+    setNewRow,
+    message,
+    error,
+    loading,
+    dataSearch,
+    setDataSearch,
+    filters,
+    setFilters,
+    page,
+    setPage,
+    pageSize,
+    setPageSize,
+    totalRows,
+    totalPages,
+    sortColumn,
+    sortDirection,
+    primaryKey,
+    load,
+    selectTable,
+    performSearch,
+    clearSearch,
+    handleSort,
+    openAdd,
+    insertRow,
+    save,
+    remove,
+  };
 }

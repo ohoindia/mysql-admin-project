@@ -16,12 +16,14 @@ require('mysql2/promise').createPool = () => ({
     destroy() { destroyed++; },
     async query(options) {
       queryCalls.push(options);
+      if (options.sql === 'SELECT id AS alias FROM editable') return [[[1]], [{ name: 'alias', orgName: 'id', orgTable: 'editable', db: 'test' }]];
       if (options.sql === 'bad SQL') throw Object.assign(new Error('Syntax error'), { code: 'ER_PARSE_ERROR' });
       if (options.sql === 'UPDATE visible SET value = 2') return [{ affectedRows: 3, warningStatus: 0 }, undefined];
       if (options.sql === 'SELECT large') return [Array.from({ length: 1001 }, (_, i) => [i]), [{ name: 'id' }]];
       return [[[1, null]], [{ name: 'value' }, { name: 'value' }]];
     },
-  }), query: async (sql) => [sql.includes('INFORMATION_SCHEMA.TABLES')
+  }), query: async (sql, params) => params?.[1] === 'editable'
+    ? [[{ name: 'id', columnKey: 'PRI' }]] : [sql.includes('INFORMATION_SCHEMA.TABLES')
   ? [{ name: 'visible' }, { name: 'restricted' }] : [{ value: 1 }]] });
 const { handler } = require('../lambda');
 const origin = process.env.CORS_ORIGINS;
@@ -69,7 +71,7 @@ test('login returns a bearer token that authenticates API Gateway v2 requests wi
   assert.equal(expiresIn, 43200);
   const me = await invoke('GET', '/api/auth/me', { token });
   assert.equal(me.statusCode, 200);
-  assert.deepEqual(JSON.parse(me.body), { username: 'admin', canRunQueries: false });
+  assert.deepEqual(JSON.parse(me.body), { username: 'admin', canRunQueries: false, isSuperUser: false });
   assert.equal((await invoke('GET', '/api/tables', { token })).statusCode, 200);
   assert.equal((await invoke('GET', '/api/auth/me', { cookies: [`mysql_admin_session=${token}`] })).statusCode, 401);
   const logout = await invoke('POST', '/api/auth/logout', { token });
@@ -112,7 +114,7 @@ test('super user bypasses table restrictions while admin remains restricted', as
     const { token } = JSON.parse(login.body);
     const me = await invoke('GET', '/api/auth/me', { token });
     assert.equal(me.statusCode, 200);
-    assert.deepEqual(JSON.parse(me.body), { username, canRunQueries: username === 'superadmin' });
+    assert.deepEqual(JSON.parse(me.body), { username, canRunQueries: username === 'superadmin', isSuperUser: username === 'superadmin' });
     const tables = await invoke('GET', '/api/tables', { token });
     assert.deepEqual(JSON.parse(tables.body), username === 'admin'
       ? [{ name: 'visible' }] : [{ name: 'visible' }, { name: 'restricted' }]);
@@ -124,7 +126,7 @@ test('super user bypasses table restrictions while admin remains restricted', as
       const response = await invoke(method, `/api/tables/restricted/${suffix}`, { token });
       assert.equal(response.statusCode, username === 'admin' ? 403 : superStatus);
       // Even a super user must pass identifier validation before querying SQL.
-      assert.equal((await invoke(method, `/api/tables/bad-name/${suffix}`, { token })).statusCode, 400);
+      assert.equal((await invoke(method, `/api/tables/bad-name/${suffix}`, { token })).statusCode, username === 'admin' && method === 'PUT' ? 403 : 400);
     }
   }
 });
@@ -145,7 +147,11 @@ test('SQL console enforces auth and table restrictions, validates input and pres
     const before = queryCalls.length;
     const response = await invoke('POST', '/api/query', { token, body: { sql: 'SELECT 1' } });
     assert.equal(response.statusCode, username === 'admin' ? 403 : 200);
-    if (username === 'admin') { assert.equal(queryCalls.length, before); continue; }
+    if (username === 'admin') {
+      assert.equal(queryCalls.length, before);
+      assert.equal((await invoke('PUT', '/api/tables/visible/rows', { token, body: { keyColumn: 'id', keyValue: 1, values: { value: 2 } } })).statusCode, 403);
+      continue;
+    }
     assert.deepEqual(JSON.parse(response.body).results, [{ columns: ['value', 'value'], rows: [[1, null]], truncated: false }]);
     for (const sql of ['', '  ', 42, 'x'.repeat(100001)]) {
       assert.equal((await invoke('POST', '/api/query', { token, body: { sql } })).statusCode, 400);
@@ -161,5 +167,9 @@ test('SQL console enforces auth and table restrictions, validates input and pres
     assert.equal(JSON.parse(failure.body).code, 'ER_PARSE_ERROR');
     assert.equal(destroyed, cleanup + 1);
     assert.equal(destroyed, queryCalls.length);
+    const editable = await invoke('POST', '/api/query', { token, body: { sql: 'SELECT id AS alias FROM editable' } });
+    assert.deepEqual(JSON.parse(editable.body).results[0].edit, { table: 'editable', keyColumn: 'id', columns: ['id'] });
+    const invalidKey = await invoke('PUT', '/api/tables/editable/rows', { token, body: { keyColumn: 'other', keyValue: 1, values: { id: 2 } } });
+    assert.equal(invalidKey.statusCode, 400);
   }
 });

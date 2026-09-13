@@ -554,6 +554,7 @@ app.get(
       username:
         req.username,
       canRunQueries: canRunQueries(req.username),
+      isSuperUser: isSuperUser(req.username),
     });
   }
 );
@@ -600,6 +601,22 @@ app.post('/api/query', requireAuth, async (req, res) => {
     const results = Array.isArray(fields) && fields.some(Array.isArray)
       ? rows.map((data, index) => format(data, fields[index]))
       : [format(rows, fields)];
+    connection.destroy();
+    connection = null;
+    if (isSuperUser(req.username)) {
+      for (const [index, result] of results.entries()) {
+        const metadata = fields?.some(Array.isArray) ? fields[index] : fields;
+        if (!result.columns || !metadata?.length) continue;
+        const table = metadata[0].orgTable;
+        if (!table || !metadata.every(f => f.orgTable === table && f.db === process.env.DB_NAME && f.orgName)) continue;
+        const names = metadata.map(f => f.orgName);
+        if (new Set(names).size !== names.length) continue;
+        const schema = await getTableSchema(table);
+        const keys = schema.filter(c => c.columnKey === 'PRI');
+        if (keys.length !== 1 || !names.includes(keys[0].name)) continue;
+        result.edit = { table, keyColumn: keys[0].name, columns: names };
+      }
+    }
     res.json({ results, durationMs: Date.now() - started });
   } catch (error) {
     res.status(error.code === 'PROTOCOL_SEQUENCE_TIMEOUT' ? 408 : 400).json({
@@ -1444,6 +1461,7 @@ app.put(
   '/api/tables/:table/rows',
   requireAuth,
   async (req, res) => {
+    if (!isSuperUser(req.username)) return res.status(403).json({ error: 'Only super users can edit records.' });
     try {
       const tableName =
         req.params.table;
@@ -1485,6 +1503,11 @@ app.put(
           (column) =>
             column.name
         );
+
+      const primaryKeys = columns.filter(column => column.columnKey === 'PRI');
+      if (primaryKeys.length !== 1 || primaryKeys[0].name !== keyColumn || keyValue === null) {
+        return res.status(400).json({ error: 'Editing requires the table\'s single primary key.' });
+      }
 
       /*
        * Make sure keyColumn really belongs to table.

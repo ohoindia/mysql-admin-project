@@ -161,6 +161,12 @@ whether a write committed; check its outcome before retrying.
 
 Deploy the updated Lambda API as well as the client to enable this feature.
 
+Only `SUPER_USER` sees Edit buttons and can use the record update API. SQL
+results support editing direct columns from one table in the configured database
+when its single primary key is included. Aliases map back to the original column
+names. Other result sets remain read-only. After saving, rerun the query to see
+updated results. Deploy both server and client for these permissions to apply.
+
 ## Local development
 
 Copy `server/.env.example` to `server/.env` and populate all credentials. Then

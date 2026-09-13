@@ -150,6 +150,7 @@ function Login({ onLogin }) {
 function App() {
   const [view, setView] = useState('tables');
   const [canRunQueries, setCanRunQueries] = useState(false);
+  const [superUser, setSuperUser] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -204,6 +205,7 @@ function App() {
       .then((result) => {
         setUser(result.username);
         setCanRunQueries(result.canRunQueries === true);
+        setSuperUser(result.isSuperUser === true);
         return loadTables();
       })
       .catch(() => setUser(null))
@@ -213,6 +215,7 @@ function App() {
   const afterLogin = async (session) => {
     setUser(session.username);
     setCanRunQueries(session.canRunQueries === true);
+    setSuperUser(session.isSuperUser === true);
     setView('tables');
     setCheckingAuth(false);
     await loadTables();
@@ -483,7 +486,7 @@ function App() {
         </nav>
         <div className="query-workspace" hidden={view !== 'query'}>
           <h1>SQL Console</h1>
-          <QueryConsole key={user} allowed={canRunQueries} onUnauthorized={() => handleError({ status: 401 })} />
+          <QueryConsole key={user} allowed={canRunQueries} superUser={superUser} onUnauthorized={() => handleError({ status: 401 })} />
         </div>
         {view === 'tables' && <>
         <div className="page-title">
@@ -589,14 +592,15 @@ function App() {
                           ))}
 
                           <td className="actions">
-                            <button
+                            {superUser && <button
+                              disabled={schema.filter(c => c.columnKey === 'PRI').length !== 1}
                               onClick={() => setEditing({
                                 original: row,
                                 values: buildEditableValues(schema, row),
                               })}
                             >
                               Edit
-                            </button>
+                            </button>}
                             <button className="danger" onClick={() => remove(row)}>Delete</button>
                           </td>
                         </tr>
@@ -704,7 +708,7 @@ function App() {
         </div>
       )}
 
-      {editing && (
+      {superUser && editing && (
         <div className="modal">
           <div className="card">
             <div className="modal-header">

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
+import QueryConsole from './components/QueryConsole';
 import { getToken, saveToken, clearToken } from './services/session';
 
 // Vite embeds the Amplify API URL during the build. Keep /api for local/Docker.
@@ -100,7 +101,8 @@ function Login({ onLogin }) {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       });
-      onLogin(result.username);
+      const session = await api('/api/auth/me');
+      onLogin(session);
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -146,6 +148,8 @@ function Login({ onLogin }) {
 }
 
 function App() {
+  const [view, setView] = useState('tables');
+  const [canRunQueries, setCanRunQueries] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -199,14 +203,17 @@ function App() {
     api('/api/auth/me')
       .then((result) => {
         setUser(result.username);
+        setCanRunQueries(result.canRunQueries === true);
         return loadTables();
       })
       .catch(() => setUser(null))
       .finally(() => setCheckingAuth(false));
   }, []);
 
-  const afterLogin = async (username) => {
-    setUser(username);
+  const afterLogin = async (session) => {
+    setUser(session.username);
+    setCanRunQueries(session.canRunQueries === true);
+    setView('tables');
     setCheckingAuth(false);
     await loadTables();
   };
@@ -268,6 +275,7 @@ function App() {
   };
 
   const selectTable = async (tableName) => {
+    setView('tables');
     setDataSearch('');
     setFilters({});
     setPage(1);
@@ -467,6 +475,17 @@ function App() {
       </aside>
 
       <main className="main-content">
+        <nav className="query-actions" aria-label="Workspace">
+          <button className={view === 'tables' ? 'primary' : 'refresh-btn'} aria-pressed={view === 'tables'}
+            onClick={() => { setView('tables'); loadTables(); if (table) load(table); }}>Table browser</button>
+          <button className={view === 'query' ? 'primary' : 'refresh-btn'} aria-pressed={view === 'query'}
+            onClick={() => setView('query')}>SQL Console</button>
+        </nav>
+        <div className="query-workspace" hidden={view !== 'query'}>
+          <h1>SQL Console</h1>
+          <QueryConsole key={user} allowed={canRunQueries} onUnauthorized={() => handleError({ status: 401 })} />
+        </div>
+        {view === 'tables' && <>
         <div className="page-title">
           <div className="page-heading">
             <h1>{table || 'Select a table'}</h1>
@@ -639,6 +658,7 @@ function App() {
             <p>Select a table from the left side.</p>
           </div>
         )}
+        </>}
       </main>
 
       {adding && (

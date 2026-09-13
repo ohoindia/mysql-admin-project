@@ -3,7 +3,7 @@ import api from '../services/api'
 
 const displayValue = value => value === null ? 'NULL' : typeof value === 'object' ? JSON.stringify(value) : String(value)
 
-export default function QueryConsole({ allowed }) {
+export default function QueryConsole({ allowed, onUnauthorized }) {
   const [sql, setSql] = useState('SELECT 1 AS result;')
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState(null)
@@ -23,6 +23,7 @@ export default function QueryConsole({ allowed }) {
       const response = await api.post('/query', { sql: statement })
       setResult(response.data)
     } catch (e) {
+      if (e.response?.status === 401) onUnauthorized?.()
       setError(`${e.response?.data?.code ? `${e.response.data.code}: ` : ''}${e.response?.data?.error || e.message}`)
     } finally { busy.current = false; setRunning(false) }
   }

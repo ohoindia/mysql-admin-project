@@ -169,6 +169,29 @@ updated results. Deploy both server and client for these permissions to apply.
 
 ## Local development
 
+### React client structure
+
+`client/src/main.jsx` only mounts `App` in React Strict Mode. `App.jsx` owns
+the authenticated workspace and loads the SQL Console on demand with
+`lazy`/`Suspense`. The console remains mounted after its first visit to preserve
+the SQL draft across workspace switches. Signing out unmounts the workspace.
+
+- `hooks/useSession.js`: session restoration, login state, and expiry handling.
+- `hooks/useTables.js`: table discovery and refresh.
+- `hooks/useTableBrowser.js`: table loading, filters, sorting, pagination, and record operations.
+- `components/`: login, sidebar, table browser, record forms, and SQL Console.
+- `services/api.js`: shared Axios client, bearer tokens, normalized errors, and 401 notifications.
+- `utils/`: date-field formatting and cancellation of superseded reads.
+
+Read requests are cancelled on replacement and unmount; late responses cannot
+replace newer table results. Database writes are never automatically retried.
+Permissions come from the server session, and the API continues to enforce them.
+
+Run `npm run lint --prefix client`, `npm test --prefix client`, and
+`npm run build --prefix client`. UI tests use a mocked API and cover the mounted
+app, super-user controls, SQL editing, session expiry, and table-request races.
+The refactor does not change the server API or deployment configuration.
+
 Copy `server/.env.example` to `server/.env` and populate all credentials. Then
 run `npm ci` and `npm run dev` in `server/`. In another terminal run `npm ci`
 and `npm run dev` in `client/`. Open http://localhost:5173; Vite proxies `/api`

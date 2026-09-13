@@ -76,11 +76,12 @@ function's environment variables.
    | `DB_PASSWORD` | Database password |
    | `DB_NAME` | Database name |
    | `ADMIN_USER` | Application login username |
-   | `ADMIN_PASSWORD` | Application login password |
+   | `SUPER_USER` | Optional additional login username with access to all tables, bypassing `ALLOWED_TABLES` |
+   | `ADMIN_PASSWORD` | Application login password shared by `ADMIN_USER` and `SUPER_USER` |
    | `SESSION_SECRET` | Long random signing secret; generate it using the command below |
    | `CORS_ORIGINS` | Exact Amplify HTTPS origin, e.g. `https://main.APP_ID.amplifyapp.com`, without a trailing slash |
    | `DB_POOL_SIZE` | `2` |
-   | `ALLOWED_TABLES` | Optional comma-separated table names; omit to allow all tables |
+   | `ALLOWED_TABLES` | Optional comma-separated table names for `ADMIN_USER`; omit to allow all tables. Does not restrict `SUPER_USER` |
 
    Generate a signing secret locally:
 

@@ -148,7 +148,13 @@ const allowedTables =
  * Therefore table names must always be validated before
  * being included in SQL.
  */
-const validateTable = (tableName) => {
+const isSuperUser = (username) =>
+  Boolean(process.env.SUPER_USER) && username === process.env.SUPER_USER;
+
+const isLoginUser = (username) =>
+  (Boolean(process.env.ADMIN_USER) && username === process.env.ADMIN_USER) || isSuperUser(username);
+
+const validateTable = (tableName, username) => {
   if (
     !tableName ||
     !/^[A-Za-z0-9_]+$/.test(tableName)
@@ -163,6 +169,7 @@ const validateTable = (tableName) => {
   }
 
   if (
+    !isSuperUser(username) &&
     allowedTables &&
     !allowedTables.includes(tableName)
   ) {
@@ -275,7 +282,7 @@ const verifySession = (value) => {
       Number(timestamp);
 
     if (
-      !Number.isFinite(sessionTime) || sessionTime > Date.now() || username !== process.env.ADMIN_USER
+      !Number.isFinite(sessionTime) || sessionTime > Date.now() || !isLoginUser(username)
     ) {
       return null;
     }
@@ -508,7 +515,7 @@ app.post(
     }
 
     if (
-      username !== adminUser ||
+      !isLoginUser(username) ||
       password !==
         adminPassword
     ) {
@@ -589,7 +596,7 @@ app.get(
        * Apply optional whitelist.
        */
       const result =
-        allowedTables
+        allowedTables && !isSuperUser(req.username)
           ? rows.filter(
               (row) =>
                 allowedTables.includes(
@@ -628,7 +635,7 @@ app.get(
         req.params.table;
 
       validateTable(
-        tableName
+        tableName, req.username
       );
 
       const columns =
@@ -684,7 +691,7 @@ app.get(
         req.params.table;
 
       validateTable(
-        tableName
+        tableName, req.username
       );
 
       let {
@@ -1093,7 +1100,7 @@ app.post(
         req.params.table;
 
       validateTable(
-        tableName
+        tableName, req.username
       );
 
       const { values } =
@@ -1403,7 +1410,7 @@ app.put(
         req.params.table;
 
       validateTable(
-        tableName
+        tableName, req.username
       );
 
       const {
@@ -1648,7 +1655,7 @@ app.delete(
         req.params.table;
 
       validateTable(
-        tableName
+        tableName, req.username
       );
 
       const {

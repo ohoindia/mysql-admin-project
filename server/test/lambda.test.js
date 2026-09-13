@@ -5,10 +5,12 @@ Object.assign(process.env, {
   AWS_LAMBDA_FUNCTION_NAME: 'local-test', NODE_ENV: 'production',
   DB_HOST: 'unused', DB_USER: 'test', DB_PASSWORD: 'test', DB_NAME: 'test',
   ADMIN_USER: 'admin', ADMIN_PASSWORD: 'test-password', SESSION_SECRET: 'test-secret',
+  SUPER_USER: 'superadmin', ALLOWED_TABLES: 'visible',
   CORS_ORIGINS: 'https://main.example.amplifyapp.com',
 });
 // Exercise the real Express/Lambda adapter without connecting to a database.
-require('mysql2/promise').createPool = () => ({ query: async () => [[{ value: 1 }]] });
+require('mysql2/promise').createPool = () => ({ query: async (sql) => [sql.includes('INFORMATION_SCHEMA.TABLES')
+  ? [{ name: 'visible' }, { name: 'restricted' }] : [{ value: 1 }]] });
 const { handler } = require('../lambda');
 const origin = process.env.CORS_ORIGINS;
 
@@ -87,4 +89,38 @@ test('invalid credentials do not issue a session', async () => {
 test('database health and unknown routes pass through the Lambda adapter', async () => {
   assert.equal((await invoke('GET', '/api/health')).statusCode, 200);
   assert.equal((await invoke('GET', '/api/missing')).statusCode, 404);
+});
+
+test('super user bypasses table restrictions while admin remains restricted', async () => {
+  for (const username of ['admin', 'superadmin']) {
+    const login = await invoke('POST', '/api/auth/login', {
+      body: { username, password: 'test-password' },
+    });
+    assert.equal(login.statusCode, 200);
+    const { token } = JSON.parse(login.body);
+    const me = await invoke('GET', '/api/auth/me', { token });
+    assert.equal(me.statusCode, 200);
+    assert.deepEqual(JSON.parse(me.body), { username });
+    const tables = await invoke('GET', '/api/tables', { token });
+    assert.deepEqual(JSON.parse(tables.body), username === 'admin'
+      ? [{ name: 'visible' }] : [{ name: 'visible' }, { name: 'restricted' }]);
+    assert.equal((await invoke('GET', '/api/tables/visible/schema', { token })).statusCode, 200);
+    for (const [method, suffix, superStatus] of [
+      ['GET', 'schema', 200], ['GET', 'rows', 200],
+      ['POST', 'rows', 400], ['PUT', 'rows', 400], ['DELETE', 'rows', 400],
+    ]) {
+      const response = await invoke(method, `/api/tables/restricted/${suffix}`, { token });
+      assert.equal(response.statusCode, username === 'admin' ? 403 : superStatus);
+      // Even a super user must pass identifier validation before querying SQL.
+      assert.equal((await invoke(method, `/api/tables/bad-name/${suffix}`, { token })).statusCode, 400);
+    }
+  }
+});
+
+test('super user and unknown users cannot log in with invalid credentials', async () => {
+  for (const [username, password] of [['superadmin', 'wrong'], ['unknown', 'test-password']]) {
+    const response = await invoke('POST', '/api/auth/login', { body: { username, password } });
+    assert.equal(response.statusCode, 401);
+    assert.equal(JSON.parse(response.body).token, undefined);
+  }
 });

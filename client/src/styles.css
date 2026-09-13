@@ -524,3 +524,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, .tablewrap:focu
   .modal-buttons { padding: 12px 12px max(12px, env(safe-area-inset-bottom)); }
   .modal-buttons button { flex: 1; }
 }
+.query-console { padding: 12px 0; }
+.query-console p { color: #64748b; font-size: 13px; }
+.query-console label { display: block; margin-bottom: 8px; font-weight: 600; }
+.query-console textarea { width: 100%; min-height: 200px; padding: 12px; resize: vertical; font: 14px/1.6 Consolas, monospace; border: 1px solid #94a3b8; border-radius: 6px; box-sizing: border-box; }
+.query-console textarea:focus-visible { outline: 2px solid #2563eb; }
+.query-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+.query-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.query-results { max-height: 50vh; overflow: auto; border: 1px solid #e5e7eb; border-radius: 6px; }
+.query-console .null { color: #94a3b8; font-style: italic; }

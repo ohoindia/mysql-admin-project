@@ -141,6 +141,26 @@ has its own database pool; consider RDS Proxy for higher concurrency.
 AWS references: [Lambda environment variables](https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html),
 [SAM deployment](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/sam-cli-command-reference-sam-deploy.html).
 
+## SQL Console
+
+Open **SQL Console**, enter a single MySQL statement, and click **Run query**
+or press Ctrl/Cmd+Enter. Highlight SQL to execute only the selection. SELECT,
+SHOW, EXPLAIN, and write statements use the configured database account's
+permissions. Results show column headers (including empty results), NULL values,
+execution time, affected rows, insert IDs, and database errors.
+
+Raw SQL is available to `SUPER_USER`, or `ADMIN_USER` when `ALLOWED_TABLES` is
+unset. Restricted admins cannot use it because arbitrary SQL cannot safely be
+checked against a table allowlist. Each execution uses a fresh connection that
+is destroyed afterward; session settings and transactions do not persist.
+Normal writes commit immediately. Multiple statements per run are disabled.
+The query timeout is 20 seconds. The response displays at most 1,000 rows per
+result set; this is a display cap, so use SQL LIMIT to constrain database work
+and memory for large queries. A timeout or connection error does not establish
+whether a write committed; check its outcome before retrying.
+
+Deploy the updated Lambda API as well as the client to enable this feature.
+
 ## Local development
 
 Copy `server/.env.example` to `server/.env` and populate all credentials. Then

@@ -128,6 +128,7 @@ const pool = mysql.createPool({
    * 2026-08-25 15:00:00
    */
   dateStrings: true,
+  multipleStatements: false,
 });
 
 /* =========================================================
@@ -153,6 +154,8 @@ const isSuperUser = (username) =>
 
 const isLoginUser = (username) =>
   (Boolean(process.env.ADMIN_USER) && username === process.env.ADMIN_USER) || isSuperUser(username);
+
+const canRunQueries = (username) => isSuperUser(username) || !allowedTables;
 
 const validateTable = (tableName, username) => {
   if (
@@ -550,6 +553,7 @@ app.get(
     res.json({
       username:
         req.username,
+      canRunQueries: canRunQueries(req.username),
     });
   }
 );
@@ -571,6 +575,41 @@ app.post(
 /* =========================================================
    GET TABLES
 ========================================================= */
+
+app.post('/api/query', requireAuth, async (req, res) => {
+  if (!canRunQueries(req.username)) {
+    return res.status(403).json({ error: 'SQL Console requires unrestricted table access. Sign in as the super user.' });
+  }
+  const sql = req.body?.sql;
+  if (typeof sql !== 'string' || !sql.trim() || sql.length > 100000) {
+    return res.status(400).json({ error: 'Enter a SQL statement (maximum 100,000 characters).' });
+  }
+  const started = Date.now();
+  let connection;
+  try {
+    // Never return a SQL-console session to the pool: USE, SET and transactions
+    // must not change the connection state of later table-browser requests.
+    connection = await pool.getConnection();
+    const [rows, fields] = await connection.query({
+      sql, rowsAsArray: true, timeout: 20000,
+      supportBigNumbers: true, bigNumberStrings: true,
+    });
+    const format = (data, columns) => Array.isArray(columns)
+      ? { columns: columns.map(field => field.name), rows: data.slice(0, 1000), truncated: data.length > 1000 }
+      : { affectedRows: data.affectedRows || 0, insertId: data.insertId || 0, warningCount: data.warningStatus || 0, info: data.info || '' };
+    const results = Array.isArray(fields) && fields.some(Array.isArray)
+      ? rows.map((data, index) => format(data, fields[index]))
+      : [format(rows, fields)];
+    res.json({ results, durationMs: Date.now() - started });
+  } catch (error) {
+    res.status(error.code === 'PROTOCOL_SEQUENCE_TIMEOUT' ? 408 : 400).json({
+      error: error.sqlMessage || error.message || 'Unable to execute SQL.',
+      code: error.code,
+    });
+  } finally {
+    if (connection) connection.destroy();
+  }
+});
 
 app.get(
   '/api/tables',

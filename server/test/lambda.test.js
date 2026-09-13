@@ -9,7 +9,19 @@ Object.assign(process.env, {
   CORS_ORIGINS: 'https://main.example.amplifyapp.com',
 });
 // Exercise the real Express/Lambda adapter without connecting to a database.
-require('mysql2/promise').createPool = () => ({ query: async (sql) => [sql.includes('INFORMATION_SCHEMA.TABLES')
+let destroyed = 0;
+const queryCalls = [];
+require('mysql2/promise').createPool = () => ({
+  getConnection: async () => ({
+    destroy() { destroyed++; },
+    async query(options) {
+      queryCalls.push(options);
+      if (options.sql === 'bad SQL') throw Object.assign(new Error('Syntax error'), { code: 'ER_PARSE_ERROR' });
+      if (options.sql === 'UPDATE visible SET value = 2') return [{ affectedRows: 3, warningStatus: 0 }, undefined];
+      if (options.sql === 'SELECT large') return [Array.from({ length: 1001 }, (_, i) => [i]), [{ name: 'id' }]];
+      return [[[1, null]], [{ name: 'value' }, { name: 'value' }]];
+    },
+  }), query: async (sql) => [sql.includes('INFORMATION_SCHEMA.TABLES')
   ? [{ name: 'visible' }, { name: 'restricted' }] : [{ value: 1 }]] });
 const { handler } = require('../lambda');
 const origin = process.env.CORS_ORIGINS;
@@ -57,7 +69,7 @@ test('login returns a bearer token that authenticates API Gateway v2 requests wi
   assert.equal(expiresIn, 43200);
   const me = await invoke('GET', '/api/auth/me', { token });
   assert.equal(me.statusCode, 200);
-  assert.deepEqual(JSON.parse(me.body), { username: 'admin' });
+  assert.deepEqual(JSON.parse(me.body), { username: 'admin', canRunQueries: false });
   assert.equal((await invoke('GET', '/api/tables', { token })).statusCode, 200);
   assert.equal((await invoke('GET', '/api/auth/me', { cookies: [`mysql_admin_session=${token}`] })).statusCode, 401);
   const logout = await invoke('POST', '/api/auth/logout', { token });
@@ -100,7 +112,7 @@ test('super user bypasses table restrictions while admin remains restricted', as
     const { token } = JSON.parse(login.body);
     const me = await invoke('GET', '/api/auth/me', { token });
     assert.equal(me.statusCode, 200);
-    assert.deepEqual(JSON.parse(me.body), { username });
+    assert.deepEqual(JSON.parse(me.body), { username, canRunQueries: username === 'superadmin' });
     const tables = await invoke('GET', '/api/tables', { token });
     assert.deepEqual(JSON.parse(tables.body), username === 'admin'
       ? [{ name: 'visible' }] : [{ name: 'visible' }, { name: 'restricted' }]);
@@ -122,5 +134,32 @@ test('super user and unknown users cannot log in with invalid credentials', asyn
     const response = await invoke('POST', '/api/auth/login', { body: { username, password } });
     assert.equal(response.statusCode, 401);
     assert.equal(JSON.parse(response.body).token, undefined);
+  }
+});
+
+test('SQL console enforces auth and table restrictions, validates input and preserves results', async () => {
+  assert.equal((await invoke('POST', '/api/query', { body: { sql: 'SELECT 1' } })).statusCode, 401);
+  for (const username of ['admin', 'superadmin']) {
+    const login = await invoke('POST', '/api/auth/login', { body: { username, password: 'test-password' } });
+    const { token } = JSON.parse(login.body);
+    const before = queryCalls.length;
+    const response = await invoke('POST', '/api/query', { token, body: { sql: 'SELECT 1' } });
+    assert.equal(response.statusCode, username === 'admin' ? 403 : 200);
+    if (username === 'admin') { assert.equal(queryCalls.length, before); continue; }
+    assert.deepEqual(JSON.parse(response.body).results, [{ columns: ['value', 'value'], rows: [[1, null]], truncated: false }]);
+    for (const sql of ['', '  ', 42, 'x'.repeat(100001)]) {
+      assert.equal((await invoke('POST', '/api/query', { token, body: { sql } })).statusCode, 400);
+    }
+    const writes = await invoke('POST', '/api/query', { token, body: { sql: 'UPDATE visible SET value = 2' } });
+    assert.equal(JSON.parse(writes.body).results[0].affectedRows, 3);
+    const large = JSON.parse((await invoke('POST', '/api/query', { token, body: { sql: 'SELECT large' } })).body);
+    assert.equal(large.results[0].rows.length, 1000);
+    assert.equal(large.results[0].truncated, true);
+    const cleanup = destroyed;
+    const failure = await invoke('POST', '/api/query', { token, body: { sql: 'bad SQL' } });
+    assert.equal(failure.statusCode, 400);
+    assert.equal(JSON.parse(failure.body).code, 'ER_PARSE_ERROR');
+    assert.equal(destroyed, cleanup + 1);
+    assert.equal(destroyed, queryCalls.length);
   }
 });

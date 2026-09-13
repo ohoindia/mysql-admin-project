@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react'
 import api from './services/api'
 import TableSidebar from './components/TableSidebar'
 import RecordModal from './components/RecordModal'
+import QueryConsole from './components/QueryConsole'
 
 export default function App() {
   const [user, setUser] = useState(null)
+  const [canRunQueries, setCanRunQueries] = useState(false)
+  const [view, setView] = useState('tables')
   const [checkingSession, setCheckingSession] = useState(true)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -26,7 +29,7 @@ export default function App() {
       if (error.response?.status === 401) setUser(null)
       return Promise.reject(error)
     })
-    api.get('/auth/me').then(r => setUser(r.data.username))
+    api.get('/auth/me').then(r => { setUser(r.data.username); setCanRunQueries(r.data.canRunQueries === true) })
       .catch(e => { if (e.response?.status !== 401) setError(e.response?.data?.error || e.message) })
       .finally(() => setCheckingSession(false))
     return () => api.interceptors.response.eject(interceptor)
@@ -92,6 +95,7 @@ export default function App() {
       // Confirm the bearer token authenticates before loading data.
       const session = await api.get('/auth/me')
       setUser(session.data.username); setPassword('')
+      setCanRunQueries(session.data.canRunQueries === true)
     } catch (e) { setError(e.response?.status === 401
       ? 'Login failed. Check your credentials and sign in again.'
       : e.response?.data?.error || e.message) }
@@ -119,10 +123,12 @@ export default function App() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return <div className="app-shell">
-    <TableSidebar tables={tables} selected={selected} onSelect={setSelected} />
+    <TableSidebar tables={tables} selected={selected} onSelect={table => { setSelected(table); setView('tables') }} />
     <main>
       <header><div><h1>MySQL Data Manager</h1><p>{selected || 'Select a table'}</p></div>{schema && <button onClick={() => setModal({ mode: 'insert' })}>+ Add Record</button>}<button className="secondary" onClick={logout}>Sign out</button></header>
-      <div className="toolbar">
+      <nav className="query-actions" aria-label="Workspace"><button className={view === 'tables' ? 'primary' : 'secondary'} onClick={() => { setView('tables'); loadData() }}>Table browser</button><button className={view === 'query' ? 'primary' : 'secondary'} onClick={() => setView('query')}>SQL Console</button></nav>
+      <div hidden={view !== 'query'}><QueryConsole key={user} allowed={canRunQueries} /></div>
+      {view === 'tables' && <><div className="toolbar">
         <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && (setPage(1), loadData(search))} placeholder="Search all columns..." />
         <button onClick={() => { setPage(1); loadData(search) }}>Search</button>
         <button className="secondary" onClick={() => { setSearch(''); setPage(1); loadData('') }}>Clear</button>
@@ -134,6 +140,7 @@ export default function App() {
         <tbody>{rows.map((row, i) => <tr key={i}>{schema?.columns.map(c => <td key={c.name}>{row[c.name] == null ? <span className="null">NULL</span> : String(row[c.name])}</td>)}<td><button className="small" disabled={schema?.primary_key?.length !== 1} onClick={() => setModal({ mode: 'edit', row })}>Edit</button></td></tr>)}</tbody></table>}
       </div>
       <footer><span>{total.toLocaleString()} records</span><div><button className="secondary" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</button><span>Page {page} of {totalPages}</span><button className="secondary" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next</button></div></footer>
+      </>}
     </main>
     {modal && schema && <RecordModal mode={modal.mode} schema={schema} row={modal.row} onClose={() => setModal(null)} onSave={save} />}
   </div>

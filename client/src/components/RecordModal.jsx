@@ -1,34 +1,145 @@
-import { useEffect, useState } from 'react'
+import { getInputType, getInputStep } from "../utils/fields";
 
-export default function RecordModal({ mode, schema, row, onClose, onSave }) {
-  const [values, setValues] = useState({})
-  useEffect(() => setValues(row || {}), [row])
+export default function RecordModal({ browser, superUser }) {
+  const {
+    table,
+    schema,
+    adding,
+    setAdding,
+    newRow,
+    setNewRow,
+    insertRow,
+    editing,
+    setEditing,
+    primaryKey,
+    save,
+  } = browser;
+  const renderField = (column, value, onChange, disabled = false) => {
+    const type = getInputType(column);
+    const step = getInputStep(column);
 
-  const editableColumns = schema.columns.filter(c => !(mode === 'insert' && c.primary_key && c.autoincrement))
+    return (
+      <input
+        type={type}
+        step={step}
+        disabled={disabled}
+        value={value ?? ""}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={column.columnType || column.dataType}
+      />
+    );
+  };
 
-  const inputType = (type) => {
-    const t = type.toLowerCase()
-    if (t.includes('date') || t.includes('time')) return 'text'
-    if (t.includes('int') || t.includes('decimal') || t.includes('float') || t.includes('double')) return 'number'
-    return 'text'
-  }
+  return (
+    <>
+      {adding && (
+        <div className="modal">
+          <div className="card">
+            <div className="modal-header">
+              <div>
+                <h3>Add New Row - {table}</h3>
+                <span>Date/time fields use native date/time pickers.</span>
+              </div>
+              <button className="modal-close" onClick={() => setAdding(false)}>
+                ×
+              </button>
+            </div>
 
-  return <div className="modal-backdrop">
-    <div className="modal">
-      <h3>{mode === 'insert' ? 'Add Record' : 'Edit Record'}</h3>
-      <div className="form-grid">
-        {editableColumns.map(col => <label key={col.name}>
-          <span>{col.name}{col.primary_key ? ' (PK)' : ''}</span>
-          <input
-            type={inputType(col.type)}
-            disabled={mode === 'edit' && col.primary_key}
-            value={values[col.name] ?? ''}
-            onChange={e => setValues(v => ({ ...v, [col.name]: e.target.value }))}
-            placeholder={col.nullable ? 'Optional' : 'Required'}
-          />
-        </label>)}
-      </div>
-      <div className="modal-actions"><button className="secondary" onClick={onClose}>Cancel</button><button onClick={() => onSave(values)}>{mode === 'insert' ? 'Insert' : 'Update'}</button></div>
-    </div>
-  </div>
+            <div className="modal-body">
+              <div className="edit-grid">
+                {schema
+                  .filter(
+                    (column) =>
+                      !String(column.extra || "")
+                        .toLowerCase()
+                        .includes("auto_increment"),
+                  )
+                  .map((column) => (
+                    <label key={column.name}>
+                      <span>
+                        {column.name}
+                        {column.isNullable === "NO" &&
+                          column.columnDefault == null && (
+                            <small className="required"> *</small>
+                          )}
+                        <small className="field-type">
+                          {" "}
+                          {column.columnType || column.dataType}
+                        </small>
+                      </span>
+
+                      {renderField(column, newRow[column.name] ?? "", (value) =>
+                        setNewRow({ ...newRow, [column.name]: value }),
+                      )}
+                    </label>
+                  ))}
+              </div>
+            </div>
+
+            <div className="modal-buttons">
+              <button className="primary" onClick={insertRow}>
+                Insert Row
+              </button>
+              <button onClick={() => setAdding(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {superUser && editing && (
+        <div className="modal">
+          <div className="card">
+            <div className="modal-header">
+              <div>
+                <h3>Edit {table}</h3>
+                <span>
+                  {primaryKey}: {String(editing.original[primaryKey] ?? "")}
+                </span>
+              </div>
+              <button className="modal-close" onClick={() => setEditing(null)}>
+                ×
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="edit-grid">
+                {schema.map((column) => (
+                  <label key={column.name}>
+                    <span>
+                      {column.name}
+                      {column.name === primaryKey && (
+                        <small> (Primary Key)</small>
+                      )}
+                      <small className="field-type">
+                        {" "}
+                        {column.columnType || column.dataType}
+                      </small>
+                    </span>
+
+                    {renderField(
+                      column,
+                      editing.values[column.name] ?? "",
+                      (value) =>
+                        setEditing({
+                          ...editing,
+                          values: { ...editing.values, [column.name]: value },
+                        }),
+                      column.name === primaryKey,
+                    )}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="modal-buttons">
+              <button className="primary" onClick={save}>
+                Save Changes
+              </button>
+              <button onClick={() => setEditing(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }

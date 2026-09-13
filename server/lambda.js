@@ -1,5 +1,5 @@
-const serverless = require('serverless-http');
-const app = require('./index');
+const serverless = require("serverless-http");
+const app = require("./index");
 
 // Initialize Express and its MySQL pool once per warm execution environment.
 const handle = serverless(app);

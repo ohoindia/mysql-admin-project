@@ -1,87 +1,83 @@
-const path = require('path');
-const dotenv = require('dotenv');
+const path = require("path");
+const dotenv = require("dotenv");
 
 // Lambda receives configuration from its environment, never a bundled .env.
-if (!process.env.AWS_LAMBDA_FUNCTION_NAME) dotenv.config({
-  path: path.join(__dirname, '.env'),
-  quiet: true,
-});
+if (!process.env.AWS_LAMBDA_FUNCTION_NAME)
+  dotenv.config({
+    path: path.join(__dirname, ".env"),
+    quiet: true,
+  });
 
-const express = require('express');
-const mysql = require('mysql2/promise');
-const crypto = require('crypto');
+const express = require("express");
+const mysql = require("mysql2/promise");
+const crypto = require("crypto");
 
 const app = express();
 
 const PORT = Number(process.env.PORT || 3000);
 
 const isProduction =
-  process.env.NODE_ENV === 'production' ||
-  Boolean(process.env.AWS_REGION);
+  process.env.NODE_ENV === "production" || Boolean(process.env.AWS_REGION);
 
 /* =========================================================
    MIDDLEWARE
 ========================================================= */
 
-app.disable('x-powered-by');
+app.disable("x-powered-by");
 
-const allowedOrigins = (process.env.CORS_ORIGINS || '')
-  .split(',').map((origin) => origin.trim()).filter(Boolean);
+const allowedOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 // Restrict browser origins before processing API requests.
-app.use('/api', (req, res, next) => {
-  const origin = req.get('origin');
-  res.vary('Origin');
-  res.set('Cache-Control', 'no-store');
+app.use("/api", (req, res, next) => {
+  const origin = req.get("origin");
+  res.vary("Origin");
+  res.set("Cache-Control", "no-store");
   if (origin) {
-    const sameOrigin = origin === `${req.protocol}://${req.get('host')}`;
+    const sameOrigin = origin === `${req.protocol}://${req.get("host")}`;
     if (!sameOrigin && !allowedOrigins.includes(origin)) {
-      return res.status(403).json({ error: 'Origin is not allowed.' });
+      return res.status(403).json({ error: "Origin is not allowed." });
     }
-    res.set('Access-Control-Allow-Origin', origin);
-    res.set('Cache-Control', 'no-store');
-    res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.set("Access-Control-Allow-Origin", origin);
+    res.set("Cache-Control", "no-store");
+    res.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   }
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
 
 app.use(
   express.json({
-    limit: '2mb',
-  })
+    limit: "2mb",
+  }),
 );
 
-
-
 // Retain static hosting for the existing Docker deployment.
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, "public")));
 
 /* =========================================================
    ENVIRONMENT VALIDATION
 ========================================================= */
 
 const requiredEnv = [
-  'DB_HOST',
-  'DB_USER',
-  'DB_PASSWORD',
-  'DB_NAME',
-  'ADMIN_USER',
-  'ADMIN_PASSWORD',
-  ...(process.env.SESSION_SECRET ? [] : ['COOKIE_SECRET']),
+  "DB_HOST",
+  "DB_USER",
+  "DB_PASSWORD",
+  "DB_NAME",
+  "ADMIN_USER",
+  "ADMIN_PASSWORD",
+  ...(process.env.SESSION_SECRET ? [] : ["COOKIE_SECRET"]),
 ];
 
-const missingEnv = requiredEnv.filter(
-  (name) => !process.env[name]
-);
+const missingEnv = requiredEnv.filter((name) => !process.env[name]);
 
 if (missingEnv.length) {
   if (isProduction) {
-    throw new Error(`Missing environment variables: ${missingEnv.join(', ')}`);
+    throw new Error(`Missing environment variables: ${missingEnv.join(", ")}`);
   }
-  console.warn(
-    `Missing environment variables: ${missingEnv.join(', ')}`
-  );
+  console.warn(`Missing environment variables: ${missingEnv.join(", ")}`);
 }
 
 /* =========================================================
@@ -91,9 +87,7 @@ if (missingEnv.length) {
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
 
-  port: Number(
-    process.env.DB_PORT || 3306
-  ),
+  port: Number(process.env.DB_PORT || 3306),
 
   user: process.env.DB_USER,
 
@@ -104,7 +98,7 @@ const pool = mysql.createPool({
   waitForConnections: true,
 
   connectionLimit: Number(
-    process.env.DB_POOL_SIZE || (process.env.AWS_LAMBDA_FUNCTION_NAME ? 2 : 5)
+    process.env.DB_POOL_SIZE || (process.env.AWS_LAMBDA_FUNCTION_NAME ? 2 : 5),
   ),
 
   queueLimit: 0,
@@ -135,13 +129,11 @@ const pool = mysql.createPool({
    ALLOWED TABLES
 ========================================================= */
 
-const allowedTables =
-  process.env.ALLOWED_TABLES
-    ? process.env.ALLOWED_TABLES
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean)
-    : null;
+const allowedTables = process.env.ALLOWED_TABLES
+  ? process.env.ALLOWED_TABLES.split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+  : null;
 
 /*
  * Table names cannot be passed as SQL parameters.
@@ -153,18 +145,14 @@ const isSuperUser = (username) =>
   Boolean(process.env.SUPER_USER) && username === process.env.SUPER_USER;
 
 const isLoginUser = (username) =>
-  (Boolean(process.env.ADMIN_USER) && username === process.env.ADMIN_USER) || isSuperUser(username);
+  (Boolean(process.env.ADMIN_USER) && username === process.env.ADMIN_USER) ||
+  isSuperUser(username);
 
 const canRunQueries = (username) => isSuperUser(username) || !allowedTables;
 
 const validateTable = (tableName, username) => {
-  if (
-    !tableName ||
-    !/^[A-Za-z0-9_]+$/.test(tableName)
-  ) {
-    const error = new Error(
-      'Invalid table name'
-    );
+  if (!tableName || !/^[A-Za-z0-9_]+$/.test(tableName)) {
+    const error = new Error("Invalid table name");
 
     error.status = 400;
 
@@ -176,9 +164,7 @@ const validateTable = (tableName, username) => {
     allowedTables &&
     !allowedTables.includes(tableName)
   ) {
-    const error = new Error(
-      'Table is not allowed'
-    );
+    const error = new Error("Table is not allowed");
 
     error.status = 403;
 
@@ -191,10 +177,12 @@ const validateTable = (tableName, username) => {
 ========================================================= */
 
 // COOKIE_SECRET remains a migration fallback for existing Lambda settings.
-const sessionSecret = process.env.SESSION_SECRET || process.env.COOKIE_SECRET || 'development-secret';
+const sessionSecret =
+  process.env.SESSION_SECRET ||
+  process.env.COOKIE_SECRET ||
+  "development-secret";
 
-const SESSION_DURATION =
-  12 * 60 * 60 * 1000;
+const SESSION_DURATION = 12 * 60 * 60 * 1000;
 
 /*
  * Create a signed session token.
@@ -202,20 +190,14 @@ const SESSION_DURATION =
 const createSession = (username) => {
   const timestamp = Date.now();
 
-  const payload =
-    `${username}:${timestamp}`;
+  const payload = `${username}:${timestamp}`;
 
   const signature = crypto
-    .createHmac(
-      'sha256',
-      sessionSecret
-    )
+    .createHmac("sha256", sessionSecret)
     .update(`bearer-v1:${payload}`)
-    .digest('hex');
+    .digest("hex");
 
-  return Buffer.from(
-    `${payload}:${signature}`
-  ).toString('base64');
+  return Buffer.from(`${payload}:${signature}`).toString("base64");
 };
 
 /*
@@ -227,73 +209,50 @@ const verifySession = (value) => {
       return null;
     }
 
-    const decoded = Buffer.from(
-      value,
-      'base64'
-    ).toString('utf8');
+    const decoded = Buffer.from(value, "base64").toString("utf8");
 
-    const parts = decoded.split(':');
+    const parts = decoded.split(":");
 
     if (parts.length !== 3) {
       return null;
     }
 
-    const [
-      username,
-      timestamp,
-      signature,
-    ] = parts;
+    const [username, timestamp, signature] = parts;
 
-    const payload =
-      `${username}:${timestamp}`;
+    const payload = `${username}:${timestamp}`;
 
     const expectedSignature = crypto
-      .createHmac(
-        'sha256',
-        sessionSecret
-      )
+      .createHmac("sha256", sessionSecret)
       .update(`bearer-v1:${payload}`)
-      .digest('hex');
+      .digest("hex");
 
     /*
      * Use timingSafeEqual instead of normal string
      * comparison for signatures.
      */
-    const actualBuffer =
-      Buffer.from(signature);
+    const actualBuffer = Buffer.from(signature);
 
-    const expectedBuffer =
-      Buffer.from(expectedSignature);
+    const expectedBuffer = Buffer.from(expectedSignature);
+
+    if (actualBuffer.length !== expectedBuffer.length) {
+      return null;
+    }
+
+    if (!crypto.timingSafeEqual(actualBuffer, expectedBuffer)) {
+      return null;
+    }
+
+    const sessionTime = Number(timestamp);
 
     if (
-      actualBuffer.length !==
-      expectedBuffer.length
+      !Number.isFinite(sessionTime) ||
+      sessionTime > Date.now() ||
+      !isLoginUser(username)
     ) {
       return null;
     }
 
-    if (
-      !crypto.timingSafeEqual(
-        actualBuffer,
-        expectedBuffer
-      )
-    ) {
-      return null;
-    }
-
-    const sessionTime =
-      Number(timestamp);
-
-    if (
-      !Number.isFinite(sessionTime) || sessionTime > Date.now() || !isLoginUser(username)
-    ) {
-      return null;
-    }
-
-    if (
-      Date.now() - sessionTime >
-      SESSION_DURATION
-    ) {
+    if (Date.now() - sessionTime > SESSION_DURATION) {
       return null;
     }
 
@@ -306,22 +265,17 @@ const verifySession = (value) => {
 /*
  * Authentication middleware.
  */
-const requireAuth = (
-  req,
-  res,
-  next
-) => {
-  const session = /^Bearer ([A-Za-z0-9+/=]+)$/i.exec(req.get('authorization') || '')?.[1];
+const requireAuth = (req, res, next) => {
+  const session = /^Bearer ([A-Za-z0-9+/=]+)$/i.exec(
+    req.get("authorization") || "",
+  )?.[1];
 
-  const username =
-    verifySession(session);
+  const username = verifySession(session);
 
   if (!username) {
-    return res
-      .status(401)
-      .json({
-        error: 'Unauthorized',
-      });
+    return res.status(401).json({
+      error: "Unauthorized",
+    });
   }
 
   req.username = username;
@@ -333,11 +287,9 @@ const requireAuth = (
    HELPER - GET TABLE SCHEMA
 ========================================================= */
 
-const getTableSchema =
-  async (tableName) => {
-    const [columns] =
-      await pool.query(
-        `
+const getTableSchema = async (tableName) => {
+  const [columns] = await pool.query(
+    `
         SELECT
           COLUMN_NAME AS name,
           DATA_TYPE AS dataType,
@@ -352,14 +304,11 @@ const getTableSchema =
           AND TABLE_NAME = ?
         ORDER BY ORDINAL_POSITION
         `,
-        [
-          process.env.DB_NAME,
-          tableName,
-        ]
-      );
+    [process.env.DB_NAME, tableName],
+  );
 
-    return columns;
-  };
+  return columns;
+};
 
 /* =========================================================
    HELPER - DATE/DATETIME NORMALIZATION
@@ -374,47 +323,27 @@ const getTableSchema =
  *
  * 2026-08-25 15:30:00
  */
-const normalizeDateValue = (
-  value,
-  dataType
-) => {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ''
-  ) {
+const normalizeDateValue = (value, dataType) => {
+  if (value === null || value === undefined || value === "") {
     return value;
   }
 
-  const type =
-    String(dataType || '')
-      .toLowerCase();
+  const type = String(dataType || "").toLowerCase();
 
-  const stringValue =
-    String(value);
+  const stringValue = String(value);
 
   /*
    * DATE
    */
-  if (type === 'date') {
-    return stringValue.substring(
-      0,
-      10
-    );
+  if (type === "date") {
+    return stringValue.substring(0, 10);
   }
 
   /*
    * DATETIME / TIMESTAMP
    */
-  if (
-    type === 'datetime' ||
-    type === 'timestamp'
-  ) {
-    let normalized =
-      stringValue.replace(
-        'T',
-        ' '
-      );
+  if (type === "datetime" || type === "timestamp") {
+    let normalized = stringValue.replace("T", " ");
 
     /*
      * Browser may provide:
@@ -422,12 +351,8 @@ const normalizeDateValue = (
      *
      * Add seconds.
      */
-    if (
-      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(
-        normalized
-      )
-    ) {
-      normalized += ':00';
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(normalized)) {
+      normalized += ":00";
     }
 
     return normalized;
@@ -436,12 +361,8 @@ const normalizeDateValue = (
   /*
    * TIME
    */
-  if (type === 'time') {
-    if (
-      /^\d{2}:\d{2}$/.test(
-        stringValue
-      )
-    ) {
+  if (type === "time") {
+    if (/^\d{2}:\d{2}$/.test(stringValue)) {
       return `${stringValue}:00`;
     }
 
@@ -455,135 +376,99 @@ const normalizeDateValue = (
    HEALTH CHECK
 ========================================================= */
 
-app.get(
-  '/api/health',
-  async (req, res) => {
-    try {
-      await pool.query(
-        'SELECT 1'
-      );
+app.get("/api/health", async (req, res) => {
+  try {
+    await pool.query("SELECT 1");
 
-      res.json({
-        status: 'OK',
-        database: 'connected',
-      });
-    } catch (error) {
-      console.error(
-        'Database health check failed:',
-        error
-      );
+    res.json({
+      status: "OK",
+      database: "connected",
+    });
+  } catch (error) {
+    console.error("Database health check failed:", error);
 
-      res
-        .status(500)
-        .json({
-          status: 'ERROR',
-          database:
-            'disconnected',
-          error:
-            error.message,
-        });
-    }
+    res.status(500).json({
+      status: "ERROR",
+      database: "disconnected",
+      error: error.message,
+    });
   }
-);
+});
 
 /* =========================================================
    LOGIN
 ========================================================= */
 
-app.post(
-  '/api/auth/login',
-  (req, res) => {
-    const {
-      username,
-      password,
-    } = req.body || {};
+app.post("/api/auth/login", (req, res) => {
+  const { username, password } = req.body || {};
 
-    const adminUser =
-      process.env.ADMIN_USER;
+  const adminUser = process.env.ADMIN_USER;
 
-    const adminPassword =
-      process.env
-        .ADMIN_PASSWORD;
+  const adminPassword = process.env.ADMIN_PASSWORD;
 
-    if (
-      !adminUser ||
-      !adminPassword
-    ) {
-      return res
-        .status(500)
-        .json({
-          error:
-            'Admin login is not configured.',
-        });
-    }
-
-    if (
-      !isLoginUser(username) ||
-      password !==
-        adminPassword
-    ) {
-      return res
-        .status(401)
-        .json({
-          error:
-            'Invalid username or password.',
-        });
-    }
-
-    const session =
-      createSession(username);
-
-    res.set('Cache-Control', 'no-store');
-    res.json({
-      token: session,
-      expiresIn: SESSION_DURATION / 1000,
-      username,
+  if (!adminUser || !adminPassword) {
+    return res.status(500).json({
+      error: "Admin login is not configured.",
     });
   }
-);
+
+  if (!isLoginUser(username) || password !== adminPassword) {
+    return res.status(401).json({
+      error: "Invalid username or password.",
+    });
+  }
+
+  const session = createSession(username);
+
+  res.set("Cache-Control", "no-store");
+  res.json({
+    token: session,
+    expiresIn: SESSION_DURATION / 1000,
+    username,
+  });
+});
 
 /* =========================================================
    CURRENT USER
 ========================================================= */
 
-app.get(
-  '/api/auth/me',
-  requireAuth,
-  (req, res) => {
-    res.json({
-      username:
-        req.username,
-      canRunQueries: canRunQueries(req.username),
-      isSuperUser: isSuperUser(req.username),
-    });
-  }
-);
+app.get("/api/auth/me", requireAuth, (req, res) => {
+  res.json({
+    username: req.username,
+    canRunQueries: canRunQueries(req.username),
+    isSuperUser: isSuperUser(req.username),
+  });
+});
 
 /* =========================================================
    LOGOUT
 ========================================================= */
 
-app.post(
-  '/api/auth/logout',
-  (req, res) => {
-    // The client discards its token; stateless tokens expire after 12 hours.
-    res.json({
-      success: true,
-    });
-  }
-);
+app.post("/api/auth/logout", (req, res) => {
+  // The client discards its token; stateless tokens expire after 12 hours.
+  res.json({
+    success: true,
+  });
+});
 
 /* =========================================================
    GET TABLES
 ========================================================= */
 
-app.post('/api/query', requireAuth, async (req, res) => {
+app.post("/api/query", requireAuth, async (req, res) => {
   if (!canRunQueries(req.username)) {
-    return res.status(403).json({ error: 'SQL Console requires unrestricted table access. Sign in as the super user.' });
+    return res
+      .status(403)
+      .json({
+        error:
+          "SQL Console requires unrestricted table access. Sign in as the super user.",
+      });
   }
   const sql = req.body?.sql;
-  if (typeof sql !== 'string' || !sql.trim() || sql.length > 100000) {
-    return res.status(400).json({ error: 'Enter a SQL statement (maximum 100,000 characters).' });
+  if (typeof sql !== "string" || !sql.trim() || sql.length > 100000) {
+    return res
+      .status(400)
+      .json({ error: "Enter a SQL statement (maximum 100,000 characters)." });
   }
   const started = Date.now();
   let connection;
@@ -592,15 +477,29 @@ app.post('/api/query', requireAuth, async (req, res) => {
     // must not change the connection state of later table-browser requests.
     connection = await pool.getConnection();
     const [rows, fields] = await connection.query({
-      sql, rowsAsArray: true, timeout: 20000,
-      supportBigNumbers: true, bigNumberStrings: true,
+      sql,
+      rowsAsArray: true,
+      timeout: 20000,
+      supportBigNumbers: true,
+      bigNumberStrings: true,
     });
-    const format = (data, columns) => Array.isArray(columns)
-      ? { columns: columns.map(field => field.name), rows: data.slice(0, 1000), truncated: data.length > 1000 }
-      : { affectedRows: data.affectedRows || 0, insertId: data.insertId || 0, warningCount: data.warningStatus || 0, info: data.info || '' };
-    const results = Array.isArray(fields) && fields.some(Array.isArray)
-      ? rows.map((data, index) => format(data, fields[index]))
-      : [format(rows, fields)];
+    const format = (data, columns) =>
+      Array.isArray(columns)
+        ? {
+            columns: columns.map((field) => field.name),
+            rows: data.slice(0, 1000),
+            truncated: data.length > 1000,
+          }
+        : {
+            affectedRows: data.affectedRows || 0,
+            insertId: data.insertId || 0,
+            warningCount: data.warningStatus || 0,
+            info: data.info || "",
+          };
+    const results =
+      Array.isArray(fields) && fields.some(Array.isArray)
+        ? rows.map((data, index) => format(data, fields[index]))
+        : [format(rows, fields)];
     connection.destroy();
     connection = null;
     if (isSuperUser(req.username)) {
@@ -608,19 +507,26 @@ app.post('/api/query', requireAuth, async (req, res) => {
         const metadata = fields?.some(Array.isArray) ? fields[index] : fields;
         if (!result.columns || !metadata?.length) continue;
         const table = metadata[0].orgTable;
-        if (!table || !metadata.every(f => f.orgTable === table && f.db === process.env.DB_NAME && f.orgName)) continue;
-        const names = metadata.map(f => f.orgName);
+        if (
+          !table ||
+          !metadata.every(
+            (f) =>
+              f.orgTable === table && f.db === process.env.DB_NAME && f.orgName,
+          )
+        )
+          continue;
+        const names = metadata.map((f) => f.orgName);
         if (new Set(names).size !== names.length) continue;
         const schema = await getTableSchema(table);
-        const keys = schema.filter(c => c.columnKey === 'PRI');
+        const keys = schema.filter((c) => c.columnKey === "PRI");
         if (keys.length !== 1 || !names.includes(keys[0].name)) continue;
         result.edit = { table, keyColumn: keys[0].name, columns: names };
       }
     }
     res.json({ results, durationMs: Date.now() - started });
   } catch (error) {
-    res.status(error.code === 'PROTOCOL_SEQUENCE_TIMEOUT' ? 408 : 400).json({
-      error: error.sqlMessage || error.message || 'Unable to execute SQL.',
+    res.status(error.code === "PROTOCOL_SEQUENCE_TIMEOUT" ? 408 : 400).json({
+      error: error.sqlMessage || error.message || "Unable to execute SQL.",
       code: error.code,
     });
   } finally {
@@ -628,14 +534,10 @@ app.post('/api/query', requireAuth, async (req, res) => {
   }
 });
 
-app.get(
-  '/api/tables',
-  requireAuth,
-  async (req, res) => {
-    try {
-      const [rows] =
-        await pool.query(
-          `
+app.get("/api/tables", requireAuth, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `
           SELECT
             TABLE_NAME AS name
           FROM INFORMATION_SCHEMA.TABLES
@@ -643,92 +545,54 @@ app.get(
             AND TABLE_TYPE = 'BASE TABLE'
           ORDER BY TABLE_NAME ASC
           `,
-          [
-            process.env.DB_NAME,
-          ]
-        );
+      [process.env.DB_NAME],
+    );
 
-      /*
-       * Apply optional whitelist.
-       */
-      const result =
-        allowedTables && !isSuperUser(req.username)
-          ? rows.filter(
-              (row) =>
-                allowedTables.includes(
-                  row.name
-                )
-            )
-          : rows;
+    /*
+     * Apply optional whitelist.
+     */
+    const result =
+      allowedTables && !isSuperUser(req.username)
+        ? rows.filter((row) => allowedTables.includes(row.name))
+        : rows;
 
-      res.json(result);
-    } catch (error) {
-      console.error(
-        'Load tables error:',
-        error
-      );
+    res.json(result);
+  } catch (error) {
+    console.error("Load tables error:", error);
 
-      res
-        .status(500)
-        .json({
-          error:
-            'Unable to load tables.',
-        });
-    }
+    res.status(500).json({
+      error: "Unable to load tables.",
+    });
   }
-);
+});
 
 /* =========================================================
    GET TABLE SCHEMA
 ========================================================= */
 
-app.get(
-  '/api/tables/:table/schema',
-  requireAuth,
-  async (req, res) => {
-    try {
-      const tableName =
-        req.params.table;
+app.get("/api/tables/:table/schema", requireAuth, async (req, res) => {
+  try {
+    const tableName = req.params.table;
 
-      validateTable(
-        tableName, req.username
-      );
+    validateTable(tableName, req.username);
 
-      const columns =
-        await getTableSchema(
-          tableName
-        );
+    const columns = await getTableSchema(tableName);
 
-      if (
-        columns.length === 0
-      ) {
-        return res
-          .status(404)
-          .json({
-            error:
-              'Table not found.',
-          });
-      }
-
-      res.json(columns);
-    } catch (error) {
-      console.error(
-        'Schema error:',
-        error
-      );
-
-      res
-        .status(
-          error.status || 500
-        )
-        .json({
-          error:
-            error.message ||
-            'Unable to load schema.',
-        });
+    if (columns.length === 0) {
+      return res.status(404).json({
+        error: "Table not found.",
+      });
     }
+
+    res.json(columns);
+  } catch (error) {
+    console.error("Schema error:", error);
+
+    res.status(error.status || 500).json({
+      error: error.message || "Unable to load schema.",
+    });
   }
-);
+});
 
 /* =========================================================
    GET ROWS
@@ -738,348 +602,209 @@ app.get(
    ASC / DESC SORTING
 ========================================================= */
 
-app.get(
-  '/api/tables/:table/rows',
-  requireAuth,
-  async (req, res) => {
-    try {
-      const tableName =
-        req.params.table;
+app.get("/api/tables/:table/rows", requireAuth, async (req, res) => {
+  try {
+    const tableName = req.params.table;
 
-      validateTable(
-        tableName, req.username
-      );
+    validateTable(tableName, req.username);
 
-      let {
-        page = 1,
-        pageSize = 50,
-        search = '',
-        filters = '',
-        sortColumn = '',
-        sortDirection = 'ASC',
-      } = req.query;
+    let {
+      page = 1,
+      pageSize = 50,
+      search = "",
+      filters = "",
+      sortColumn = "",
+      sortDirection = "ASC",
+    } = req.query;
 
-      /*
-       * Convert pagination to safe integers.
-       */
-      page =
-        Math.max(
-          parseInt(page, 10) ||
-            1,
-          1
-        );
+    /*
+     * Convert pagination to safe integers.
+     */
+    page = Math.max(parseInt(page, 10) || 1, 1);
 
-      pageSize =
-        Math.min(
-          Math.max(
-            parseInt(
-              pageSize,
-              10
-            ) || 50,
-            1
-          ),
-          200
-        );
+    pageSize = Math.min(Math.max(parseInt(pageSize, 10) || 50, 1), 200);
 
-      const offset =
-        (page - 1) *
-        pageSize;
+    const offset = (page - 1) * pageSize;
 
-      /*
-       * Get table schema.
-       */
-      const columns =
-        await getTableSchema(
-          tableName
-        );
+    /*
+     * Get table schema.
+     */
+    const columns = await getTableSchema(tableName);
 
-      if (
-        columns.length === 0
-      ) {
-        return res
-          .status(404)
-          .json({
-            error:
-              'Table not found.',
-          });
-      }
+    if (columns.length === 0) {
+      return res.status(404).json({
+        error: "Table not found.",
+      });
+    }
 
-      const validColumns =
-        columns.map(
-          (column) =>
-            column.name
-        );
+    const validColumns = columns.map((column) => column.name);
 
-      const whereParts = [];
+    const whereParts = [];
 
-      const params = [];
+    const params = [];
 
-      /* =============================================
+    /* =============================================
          GLOBAL SEARCH
       ============================================= */
 
-      const cleanSearch =
-        String(
-          search || ''
-        ).trim();
+    const cleanSearch = String(search || "").trim();
 
-      if (cleanSearch) {
-        const searchValue =
-          `%${cleanSearch}%`;
+    if (cleanSearch) {
+      const searchValue = `%${cleanSearch}%`;
 
-        /*
-         * Do not attempt LIKE searches against binary
-         * or blob columns.
-         */
-        const searchableColumns =
-          columns.filter(
-            (column) =>
-              ![
-                'blob',
-                'tinyblob',
-                'mediumblob',
-                'longblob',
-                'binary',
-                'varbinary',
-              ].includes(
-                String(
-                  column.dataType
-                ).toLowerCase()
-              )
-          );
+      /*
+       * Do not attempt LIKE searches against binary
+       * or blob columns.
+       */
+      const searchableColumns = columns.filter(
+        (column) =>
+          ![
+            "blob",
+            "tinyblob",
+            "mediumblob",
+            "longblob",
+            "binary",
+            "varbinary",
+          ].includes(String(column.dataType).toLowerCase()),
+      );
 
-        const searchConditions =
-          searchableColumns.map(
-            (column) => {
-              params.push(
-                searchValue
-              );
+      const searchConditions = searchableColumns.map((column) => {
+        params.push(searchValue);
 
-              return (
-                `CAST(\`${column.name}\` AS CHAR) LIKE ?`
-              );
-            }
-          );
+        return `CAST(\`${column.name}\` AS CHAR) LIKE ?`;
+      });
 
-        if (
-          searchConditions.length
-        ) {
-          whereParts.push(
-            `(${searchConditions.join(
-              ' OR '
-            )})`
-          );
-        }
+      if (searchConditions.length) {
+        whereParts.push(`(${searchConditions.join(" OR ")})`);
       }
+    }
 
-      /* =============================================
+    /* =============================================
          COLUMN WHERE FILTERS
       ============================================= */
 
-      if (filters) {
-        let parsedFilters;
+    if (filters) {
+      let parsedFilters;
 
-        try {
-          parsedFilters =
-            typeof filters ===
-            'string'
-              ? JSON.parse(
-                  filters
-                )
-              : filters;
-        } catch {
-          return res
-            .status(400)
-            .json({
-              error:
-                'Invalid filter format.',
-            });
-        }
-
-        if (
-          parsedFilters &&
-          typeof parsedFilters ===
-            'object' &&
-          !Array.isArray(
-            parsedFilters
-          )
-        ) {
-          for (
-            const [
-              columnName,
-              filterValue,
-            ] of Object.entries(
-              parsedFilters
-            )
-          ) {
-            /*
-             * Never allow arbitrary column names.
-             */
-            if (
-              !validColumns.includes(
-                columnName
-              )
-            ) {
-              continue;
-            }
-
-            if (
-              filterValue ===
-                null ||
-              filterValue ===
-                undefined ||
-              String(
-                filterValue
-              ).trim() === ''
-            ) {
-              continue;
-            }
-
-            const column =
-              columns.find(
-                (item) =>
-                  item.name ===
-                  columnName
-              );
-
-            const dataType =
-              String(
-                column?.dataType ||
-                  ''
-              ).toLowerCase();
-
-            /*
-             * DATE filters.
-             *
-             * If React sends:
-             *
-             * DateofBirth = 1990-01-01
-             *
-             * use equality instead of LIKE.
-             */
-            if (
-              dataType ===
-              'date'
-            ) {
-              whereParts.push(
-                `\`${columnName}\` = ?`
-              );
-
-              params.push(
-                normalizeDateValue(
-                  filterValue,
-                  dataType
-                )
-              );
-
-              continue;
-            }
-
-            /*
-             * Other columns currently use Contains.
-             */
-            whereParts.push(
-              `CAST(\`${columnName}\` AS CHAR) LIKE ?`
-            );
-
-            params.push(
-              `%${String(
-                filterValue
-              ).trim()}%`
-            );
-          }
-        }
+      try {
+        parsedFilters =
+          typeof filters === "string" ? JSON.parse(filters) : filters;
+      } catch {
+        return res.status(400).json({
+          error: "Invalid filter format.",
+        });
       }
 
-      const whereClause =
-        whereParts.length
-          ? `WHERE ${whereParts.join(
-              ' AND '
-            )}`
-          : '';
+      if (
+        parsedFilters &&
+        typeof parsedFilters === "object" &&
+        !Array.isArray(parsedFilters)
+      ) {
+        for (const [columnName, filterValue] of Object.entries(parsedFilters)) {
+          /*
+           * Never allow arbitrary column names.
+           */
+          if (!validColumns.includes(columnName)) {
+            continue;
+          }
 
-      /* =============================================
+          if (
+            filterValue === null ||
+            filterValue === undefined ||
+            String(filterValue).trim() === ""
+          ) {
+            continue;
+          }
+
+          const column = columns.find((item) => item.name === columnName);
+
+          const dataType = String(column?.dataType || "").toLowerCase();
+
+          /*
+           * DATE filters.
+           *
+           * If React sends:
+           *
+           * DateofBirth = 1990-01-01
+           *
+           * use equality instead of LIKE.
+           */
+          if (dataType === "date") {
+            whereParts.push(`\`${columnName}\` = ?`);
+
+            params.push(normalizeDateValue(filterValue, dataType));
+
+            continue;
+          }
+
+          /*
+           * Other columns currently use Contains.
+           */
+          whereParts.push(`CAST(\`${columnName}\` AS CHAR) LIKE ?`);
+
+          params.push(`%${String(filterValue).trim()}%`);
+        }
+      }
+    }
+
+    const whereClause = whereParts.length
+      ? `WHERE ${whereParts.join(" AND ")}`
+      : "";
+
+    /* =============================================
          ASC / DESC SORTING
       ============================================= */
 
-      let orderBy = '';
+    let orderBy = "";
 
-      if (
-        sortColumn &&
-        validColumns.includes(
-          sortColumn
-        )
-      ) {
-        /*
-         * Only ASC or DESC are permitted.
-         */
-        const direction =
-          String(
-            sortDirection
-          ).toUpperCase() ===
-          'DESC'
-            ? 'DESC'
-            : 'ASC';
+    if (sortColumn && validColumns.includes(sortColumn)) {
+      /*
+       * Only ASC or DESC are permitted.
+       */
+      const direction =
+        String(sortDirection).toUpperCase() === "DESC" ? "DESC" : "ASC";
 
-        orderBy =
-          `ORDER BY \`${sortColumn}\` ${direction}`;
-      } else {
-        /*
-         * Default sorting:
-         *
-         * Primary key DESC.
-         */
-        const primaryKey =
-          columns.find(
-            (column) =>
-              column.columnKey ===
-              'PRI'
-          );
+      orderBy = `ORDER BY \`${sortColumn}\` ${direction}`;
+    } else {
+      /*
+       * Default sorting:
+       *
+       * Primary key DESC.
+       */
+      const primaryKey = columns.find((column) => column.columnKey === "PRI");
 
-        if (primaryKey) {
-          orderBy =
-            `ORDER BY \`${primaryKey.name}\` DESC`;
-        }
+      if (primaryKey) {
+        orderBy = `ORDER BY \`${primaryKey.name}\` DESC`;
       }
+    }
 
-      /* =============================================
+    /* =============================================
          TOTAL RECORD COUNT
       ============================================= */
 
-      const countSql = `
+    const countSql = `
         SELECT COUNT(*) AS total
         FROM \`${tableName}\`
         ${whereClause}
       `;
 
-      const [countRows] =
-        await pool.query(
-          countSql,
-          params
-        );
+    const [countRows] = await pool.query(countSql, params);
 
-      const total =
-        Number(
-          countRows[0]?.total ||
-            0
-        );
+    const total = Number(countRows[0]?.total || 0);
 
-      const totalPages =
-        Math.ceil(
-          total / pageSize
-        );
+    const totalPages = Math.ceil(total / pageSize);
 
-      /* =============================================
+    /* =============================================
          DATA QUERY
       ============================================= */
 
-      /*
-       * pageSize and offset are numbers created by
-       * parseInt and constrained above.
-       *
-       * Therefore they are safe to interpolate.
-       */
-      const dataSql = `
+    /*
+     * pageSize and offset are numbers created by
+     * parseInt and constrained above.
+     *
+     * Therefore they are safe to interpolate.
+     */
+    const dataSql = `
         SELECT *
         FROM \`${tableName}\`
         ${whereClause}
@@ -1088,309 +813,193 @@ app.get(
         OFFSET ${offset}
       `;
 
-      const [rows] =
-        await pool.query(
-          dataSql,
-          params
-        );
+    const [rows] = await pool.query(dataSql, params);
 
-      res.json({
-        data: rows,
+    res.json({
+      data: rows,
 
-        pagination: {
-          page,
-          pageSize,
-          total,
-          totalPages,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages,
 
-          hasPrevious:
-            page > 1,
+        hasPrevious: page > 1,
 
-          hasNext:
-            page < totalPages,
-        },
+        hasNext: page < totalPages,
+      },
 
-        sort: {
-          column:
-            sortColumn ||
-            null,
+      sort: {
+        column: sortColumn || null,
 
-          direction:
-            String(
-              sortDirection
-            ).toUpperCase() ===
-            'DESC'
-              ? 'DESC'
-              : 'ASC',
-        },
-      });
-    } catch (error) {
-      console.error(
-        'Load rows error:',
-        error
-      );
+        direction:
+          String(sortDirection).toUpperCase() === "DESC" ? "DESC" : "ASC",
+      },
+    });
+  } catch (error) {
+    console.error("Load rows error:", error);
 
-      res
-        .status(
-          error.status || 500
-        )
-        .json({
-          error:
-            error.message ||
-            'Unable to load rows.',
-        });
-    }
+    res.status(error.status || 500).json({
+      error: error.message || "Unable to load rows.",
+    });
   }
-);
+});
 
 /* =========================================================
    INSERT NEW ROW
 ========================================================= */
 
-app.post(
-  '/api/tables/:table/rows',
-  requireAuth,
-  async (req, res) => {
-    try {
-      const tableName =
-        req.params.table;
+app.post("/api/tables/:table/rows", requireAuth, async (req, res) => {
+  try {
+    const tableName = req.params.table;
 
-      validateTable(
-        tableName, req.username
-      );
+    validateTable(tableName, req.username);
 
-      const { values } =
-        req.body || {};
+    const { values } = req.body || {};
 
-      if (
-        !values ||
-        typeof values !==
-          'object' ||
-        Array.isArray(values)
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'Invalid insert request.',
-          });
-      }
+    if (!values || typeof values !== "object" || Array.isArray(values)) {
+      return res.status(400).json({
+        error: "Invalid insert request.",
+      });
+    }
 
-      /*
-       * Load actual MySQL schema.
-       */
-      const columns =
-        await getTableSchema(
-          tableName
-        );
+    /*
+     * Load actual MySQL schema.
+     */
+    const columns = await getTableSchema(tableName);
 
-      if (
-        columns.length === 0
-      ) {
-        return res
-          .status(404)
-          .json({
-            error:
-              'Table not found.',
-          });
-      }
+    if (columns.length === 0) {
+      return res.status(404).json({
+        error: "Table not found.",
+      });
+    }
 
-      /*
-       * Do not allow the client to explicitly insert
-       * into AUTO_INCREMENT columns.
-       */
-      const insertableColumns =
-        columns.filter(
-          (column) =>
-            !String(
-              column.extra || ''
-            )
-              .toLowerCase()
-              .includes(
-                'auto_increment'
-              )
-        );
+    /*
+     * Do not allow the client to explicitly insert
+     * into AUTO_INCREMENT columns.
+     */
+    const insertableColumns = columns.filter(
+      (column) =>
+        !String(column.extra || "")
+          .toLowerCase()
+          .includes("auto_increment"),
+    );
 
-      const insertColumns = [];
+    const insertColumns = [];
 
-      const insertValues = [];
+    const insertValues = [];
 
-      /* =============================================
+    /* =============================================
          BUILD INSERT VALUES
       ============================================= */
 
-      for (
-        const column of
-        insertableColumns
-      ) {
-        if (
-          !Object.prototype.hasOwnProperty.call(
-            values,
-            column.name
-          )
-        ) {
+    for (const column of insertableColumns) {
+      if (!Object.prototype.hasOwnProperty.call(values, column.name)) {
+        continue;
+      }
+
+      let value = values[column.name];
+
+      /*
+       * Empty input.
+       */
+      if (value === "" || value === undefined) {
+        /*
+         * If DB has a default value, don't include
+         * the column. MySQL will apply its default.
+         */
+        if (column.columnDefault !== null) {
           continue;
         }
 
-        let value =
-          values[column.name];
-
         /*
-         * Empty input.
+         * Nullable columns become NULL.
          */
-        if (
-          value === '' ||
-          value === undefined
-        ) {
-          /*
-           * If DB has a default value, don't include
-           * the column. MySQL will apply its default.
-           */
-          if (
-            column.columnDefault !==
-            null
-          ) {
-            continue;
-          }
-
-          /*
-           * Nullable columns become NULL.
-           */
-          if (
-            column.isNullable ===
-            'YES'
-          ) {
-            value = null;
-          }
+        if (column.isNullable === "YES") {
+          value = null;
         }
-
-        /*
-         * Convert HTML date/datetime/time values into
-         * MySQL-compatible values.
-         */
-        if (
-          value !== null
-        ) {
-          value =
-            normalizeDateValue(
-              value,
-              column.dataType
-            );
-        }
-
-        insertColumns.push(
-          column.name
-        );
-
-        insertValues.push(
-          value
-        );
       }
 
-      /* =============================================
+      /*
+       * Convert HTML date/datetime/time values into
+       * MySQL-compatible values.
+       */
+      if (value !== null) {
+        value = normalizeDateValue(value, column.dataType);
+      }
+
+      insertColumns.push(column.name);
+
+      insertValues.push(value);
+    }
+
+    /* =============================================
          VALIDATE REQUIRED COLUMNS
       ============================================= */
 
-      const missingRequired =
-        insertableColumns.filter(
-          (column) => {
-            /*
-             * Nullable is not required.
-             */
-            if (
-              column.isNullable ===
-              'YES'
-            ) {
-              return false;
-            }
-
-            /*
-             * Database default means frontend value
-             * isn't required.
-             */
-            if (
-              column.columnDefault !==
-              null
-            ) {
-              return false;
-            }
-
-            const hasValue =
-              Object.prototype.hasOwnProperty.call(
-                values,
-                column.name
-              );
-
-            if (!hasValue) {
-              return true;
-            }
-
-            const value =
-              values[
-                column.name
-              ];
-
-            return (
-              value === '' ||
-              value ===
-                undefined ||
-              value === null
-            );
-          }
-        );
-
-      if (
-        missingRequired.length
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              `Required fields missing: ${missingRequired
-                .map(
-                  (column) =>
-                    column.name
-                )
-                .join(', ')}`,
-          });
+    const missingRequired = insertableColumns.filter((column) => {
+      /*
+       * Nullable is not required.
+       */
+      if (column.isNullable === "YES") {
+        return false;
       }
 
-      let result;
+      /*
+       * Database default means frontend value
+       * isn't required.
+       */
+      if (column.columnDefault !== null) {
+        return false;
+      }
 
-      /* =============================================
+      const hasValue = Object.prototype.hasOwnProperty.call(
+        values,
+        column.name,
+      );
+
+      if (!hasValue) {
+        return true;
+      }
+
+      const value = values[column.name];
+
+      return value === "" || value === undefined || value === null;
+    });
+
+    if (missingRequired.length) {
+      return res.status(400).json({
+        error: `Required fields missing: ${missingRequired
+          .map((column) => column.name)
+          .join(", ")}`,
+      });
+    }
+
+    let result;
+
+    /* =============================================
          INSERT
       ============================================= */
 
-      if (
-        insertColumns.length ===
-        0
-      ) {
-        /*
-         * Table only contains generated/default
-         * columns.
-         */
-        [result] =
-          await pool.query(
-            `
+    if (insertColumns.length === 0) {
+      /*
+       * Table only contains generated/default
+       * columns.
+       */
+      [result] = await pool.query(
+        `
             INSERT INTO \`${tableName}\`
             VALUES ()
-            `
-          );
-      } else {
-        const columnsSql =
-          insertColumns
-            .map(
-              (column) =>
-                `\`${column}\``
-            )
-            .join(', ');
+            `,
+      );
+    } else {
+      const columnsSql = insertColumns
+        .map((column) => `\`${column}\``)
+        .join(", ");
 
-        const placeholders =
-          insertColumns
-            .map(() => '?')
-            .join(', ');
+      const placeholders = insertColumns.map(() => "?").join(", ");
 
-        const sql = `
+      const sql = `
           INSERT INTO \`${tableName}\`
           (
             ${columnsSql}
@@ -1401,527 +1010,308 @@ app.post(
           )
         `;
 
-        [result] =
-          await pool.query(
-            sql,
-            insertValues
-          );
-      }
-
-      res
-        .status(201)
-        .json({
-          success: true,
-
-          insertId:
-            result.insertId,
-
-          affectedRows:
-            result.affectedRows,
-        });
-    } catch (error) {
-      console.error(
-        'Insert error:',
-        error
-      );
-
-      /*
-       * Duplicate key.
-       */
-      if (
-        error.code ===
-        'ER_DUP_ENTRY'
-      ) {
-        return res
-          .status(409)
-          .json({
-            error:
-              'A record with the same unique value already exists.',
-          });
-      }
-
-      res
-        .status(
-          error.status || 500
-        )
-        .json({
-          error:
-            error.message ||
-            'Insert failed.',
-        });
+      [result] = await pool.query(sql, insertValues);
     }
+
+    res.status(201).json({
+      success: true,
+
+      insertId: result.insertId,
+
+      affectedRows: result.affectedRows,
+    });
+  } catch (error) {
+    console.error("Insert error:", error);
+
+    /*
+     * Duplicate key.
+     */
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        error: "A record with the same unique value already exists.",
+      });
+    }
+
+    res.status(error.status || 500).json({
+      error: error.message || "Insert failed.",
+    });
   }
-);
+});
 
 /* =========================================================
    UPDATE ROW
 ========================================================= */
 
-app.put(
-  '/api/tables/:table/rows',
-  requireAuth,
-  async (req, res) => {
-    if (!isSuperUser(req.username)) return res.status(403).json({ error: 'Only super users can edit records.' });
-    try {
-      const tableName =
-        req.params.table;
+app.put("/api/tables/:table/rows", requireAuth, async (req, res) => {
+  if (!isSuperUser(req.username))
+    return res
+      .status(403)
+      .json({ error: "Only super users can edit records." });
+  try {
+    const tableName = req.params.table;
 
-      validateTable(
-        tableName, req.username
-      );
+    validateTable(tableName, req.username);
 
-      const {
-        keyColumn,
-        keyValue,
-        values,
-      } = req.body || {};
+    const { keyColumn, keyValue, values } = req.body || {};
 
-      if (
-        !keyColumn ||
-        keyValue ===
-          undefined ||
-        !values ||
-        typeof values !==
-          'object' ||
-        Array.isArray(values)
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'Invalid update request.',
-          });
-      }
+    if (
+      !keyColumn ||
+      keyValue === undefined ||
+      !values ||
+      typeof values !== "object" ||
+      Array.isArray(values)
+    ) {
+      return res.status(400).json({
+        error: "Invalid update request.",
+      });
+    }
 
-      const columns =
-        await getTableSchema(
-          tableName
-        );
+    const columns = await getTableSchema(tableName);
 
-      const validColumns =
-        columns.map(
-          (column) =>
-            column.name
-        );
+    const validColumns = columns.map((column) => column.name);
 
-      const primaryKeys = columns.filter(column => column.columnKey === 'PRI');
-      if (primaryKeys.length !== 1 || primaryKeys[0].name !== keyColumn || keyValue === null) {
-        return res.status(400).json({ error: 'Editing requires the table\'s single primary key.' });
+    const primaryKeys = columns.filter((column) => column.columnKey === "PRI");
+    if (
+      primaryKeys.length !== 1 ||
+      primaryKeys[0].name !== keyColumn ||
+      keyValue === null
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Editing requires the table's single primary key." });
+    }
+
+    /*
+     * Make sure keyColumn really belongs to table.
+     */
+    if (!validColumns.includes(keyColumn)) {
+      return res.status(400).json({
+        error: "Invalid key column.",
+      });
+    }
+
+    const entries = [];
+
+    /*
+     * Only accept real columns.
+     */
+    for (const [columnName, rawValue] of Object.entries(values)) {
+      if (!validColumns.includes(columnName)) {
+        continue;
       }
 
       /*
-       * Make sure keyColumn really belongs to table.
+       * Primary key is not editable.
        */
-      if (
-        !validColumns.includes(
-          keyColumn
-        )
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'Invalid key column.',
-          });
+      if (columnName === keyColumn) {
+        continue;
       }
 
-      const entries = [];
+      const column = columns.find((item) => item.name === columnName);
 
       /*
-       * Only accept real columns.
+       * Never update generated columns.
        */
-      for (
-        const [
-          columnName,
-          rawValue,
-        ] of Object.entries(
-          values
-        )
-      ) {
-        if (
-          !validColumns.includes(
-            columnName
-          )
-        ) {
-          continue;
-        }
-
-        /*
-         * Primary key is not editable.
-         */
-        if (
-          columnName ===
-          keyColumn
-        ) {
-          continue;
-        }
-
-        const column =
-          columns.find(
-            (item) =>
-              item.name ===
-              columnName
-          );
-
-        /*
-         * Never update generated columns.
-         */
-        if (
-          String(
-            column?.extra || ''
-          )
-            .toLowerCase()
-            .includes(
-              'auto_increment'
-            )
-        ) {
-          continue;
-        }
-
-        let value =
-          rawValue;
-
-        /*
-         * Empty nullable field becomes NULL.
-         */
-        if (
-          value === '' &&
-          column?.isNullable ===
-            'YES'
-        ) {
-          value = null;
-        }
-
-        /*
-         * Normalize DATE/DATETIME/TIMESTAMP/TIME.
-         */
-        if (
-          value !== null &&
-          value !== undefined
-        ) {
-          value =
-            normalizeDateValue(
-              value,
-              column?.dataType
-            );
-        }
-
-        entries.push({
-          columnName,
-          value,
-        });
-      }
-
       if (
-        entries.length === 0
+        String(column?.extra || "")
+          .toLowerCase()
+          .includes("auto_increment")
       ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'No fields to update.',
-          });
+        continue;
       }
 
-      const setClause =
-        entries
-          .map(
-            ({ columnName }) =>
-              `\`${columnName}\` = ?`
-          )
-          .join(', ');
+      let value = rawValue;
 
-      const params =
-        entries.map(
-          ({ value }) =>
-            value
-        );
+      /*
+       * Empty nullable field becomes NULL.
+       */
+      if (value === "" && column?.isNullable === "YES") {
+        value = null;
+      }
 
-      params.push(keyValue);
+      /*
+       * Normalize DATE/DATETIME/TIMESTAMP/TIME.
+       */
+      if (value !== null && value !== undefined) {
+        value = normalizeDateValue(value, column?.dataType);
+      }
 
-      const sql = `
+      entries.push({
+        columnName,
+        value,
+      });
+    }
+
+    if (entries.length === 0) {
+      return res.status(400).json({
+        error: "No fields to update.",
+      });
+    }
+
+    const setClause = entries
+      .map(({ columnName }) => `\`${columnName}\` = ?`)
+      .join(", ");
+
+    const params = entries.map(({ value }) => value);
+
+    params.push(keyValue);
+
+    const sql = `
         UPDATE \`${tableName}\`
         SET ${setClause}
         WHERE \`${keyColumn}\` = ?
         LIMIT 1
       `;
 
-      const [result] =
-        await pool.query(
-          sql,
-          params
-        );
+    const [result] = await pool.query(sql, params);
 
-      if (
-        result.affectedRows ===
-        0
-      ) {
-        return res
-          .status(404)
-          .json({
-            error:
-              'Record not found.',
-          });
-      }
-
-      res.json({
-        success: true,
-
-        affectedRows:
-          result.affectedRows,
-
-        changedRows:
-          result.changedRows,
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        error: "Record not found.",
       });
-    } catch (error) {
-      console.error(
-        'Update error:',
-        error
-      );
-
-      if (
-        error.code ===
-        'ER_DUP_ENTRY'
-      ) {
-        return res
-          .status(409)
-          .json({
-            error:
-              'A record with the same unique value already exists.',
-          });
-      }
-
-      res
-        .status(
-          error.status || 500
-        )
-        .json({
-          error:
-            error.message ||
-            'Update failed.',
-        });
     }
+
+    res.json({
+      success: true,
+
+      affectedRows: result.affectedRows,
+
+      changedRows: result.changedRows,
+    });
+  } catch (error) {
+    console.error("Update error:", error);
+
+    if (error.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        error: "A record with the same unique value already exists.",
+      });
+    }
+
+    res.status(error.status || 500).json({
+      error: error.message || "Update failed.",
+    });
   }
-);
+});
 
 /* =========================================================
    DELETE ROW
 ========================================================= */
 
-app.delete(
-  '/api/tables/:table/rows',
-  requireAuth,
-  async (req, res) => {
-    try {
-      const tableName =
-        req.params.table;
+app.delete("/api/tables/:table/rows", requireAuth, async (req, res) => {
+  try {
+    const tableName = req.params.table;
 
-      validateTable(
-        tableName, req.username
-      );
+    validateTable(tableName, req.username);
 
-      const {
-        keyColumn,
-        keyValue,
-      } = req.body || {};
+    const { keyColumn, keyValue } = req.body || {};
 
-      if (
-        !keyColumn ||
-        keyValue ===
-          undefined
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'Invalid delete request.',
-          });
-      }
+    if (!keyColumn || keyValue === undefined) {
+      return res.status(400).json({
+        error: "Invalid delete request.",
+      });
+    }
 
-      const columns =
-        await getTableSchema(
-          tableName
-        );
+    const columns = await getTableSchema(tableName);
 
-      const validColumns =
-        columns.map(
-          (column) =>
-            column.name
-        );
+    const validColumns = columns.map((column) => column.name);
 
-      /*
-       * Never accept arbitrary key columns.
-       */
-      if (
-        !validColumns.includes(
-          keyColumn
-        )
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              'Invalid key column.',
-          });
-      }
+    /*
+     * Never accept arbitrary key columns.
+     */
+    if (!validColumns.includes(keyColumn)) {
+      return res.status(400).json({
+        error: "Invalid key column.",
+      });
+    }
 
-      /*
-       * Prefer requiring an actual PRIMARY KEY.
-       *
-       * This prevents accidentally deleting an
-       * arbitrary row using a non-unique column.
-       */
-      const primaryKey =
-        columns.find(
-          (column) =>
-            column.columnKey ===
-            'PRI'
-        );
+    /*
+     * Prefer requiring an actual PRIMARY KEY.
+     *
+     * This prevents accidentally deleting an
+     * arbitrary row using a non-unique column.
+     */
+    const primaryKey = columns.find((column) => column.columnKey === "PRI");
 
-      if (
-        primaryKey &&
-        primaryKey.name !==
-          keyColumn
-      ) {
-        return res
-          .status(400)
-          .json({
-            error:
-              `Delete must use primary key: ${primaryKey.name}`,
-          });
-      }
+    if (primaryKey && primaryKey.name !== keyColumn) {
+      return res.status(400).json({
+        error: `Delete must use primary key: ${primaryKey.name}`,
+      });
+    }
 
-      const sql = `
+    const sql = `
         DELETE
         FROM \`${tableName}\`
         WHERE \`${keyColumn}\` = ?
         LIMIT 1
       `;
 
-      const [result] =
-        await pool.query(
-          sql,
-          [keyValue]
-        );
+    const [result] = await pool.query(sql, [keyValue]);
 
-      if (
-        result.affectedRows ===
-        0
-      ) {
-        return res
-          .status(404)
-          .json({
-            error:
-              'Record not found.',
-          });
-      }
-
-      res.json({
-        success: true,
-
-        affectedRows:
-          result.affectedRows,
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        error: "Record not found.",
       });
-    } catch (error) {
-      console.error(
-        'Delete error:',
-        error
-      );
-
-      /*
-       * Foreign key constraint.
-       */
-      if (
-        error.code ===
-        'ER_ROW_IS_REFERENCED_2'
-      ) {
-        return res
-          .status(409)
-          .json({
-            error:
-              'This record cannot be deleted because other records reference it.',
-          });
-      }
-
-      res
-        .status(
-          error.status || 500
-        )
-        .json({
-          error:
-            error.message ||
-            'Delete failed.',
-        });
     }
+
+    res.json({
+      success: true,
+
+      affectedRows: result.affectedRows,
+    });
+  } catch (error) {
+    console.error("Delete error:", error);
+
+    /*
+     * Foreign key constraint.
+     */
+    if (error.code === "ER_ROW_IS_REFERENCED_2") {
+      return res.status(409).json({
+        error:
+          "This record cannot be deleted because other records reference it.",
+      });
+    }
+
+    res.status(error.status || 500).json({
+      error: error.message || "Delete failed.",
+    });
   }
-);
+});
 
 /* =========================================================
    404 FOR UNKNOWN API ROUTES
 ========================================================= */
 
-app.use(
-  '/api',
-  (req, res) => {
-    res
-      .status(404)
-      .json({
-        error:
-          'API endpoint not found.',
-      });
-  }
-);
+app.use("/api", (req, res) => {
+  res.status(404).json({
+    error: "API endpoint not found.",
+  });
+});
 
 /* =========================================================
    GLOBAL ERROR HANDLER
 ========================================================= */
 
-app.use(
-  (
-    error,
-    req,
-    res,
-    next
-  ) => {
-    console.error(
-      'Unhandled server error:',
-      error
-    );
+app.use((error, req, res, next) => {
+  console.error("Unhandled server error:", error);
 
-    if (
-      res.headersSent
-    ) {
-      return next(error);
-    }
-
-    res
-      .status(500)
-      .json({
-        error:
-          'Internal server error.',
-      });
+  if (res.headersSent) {
+    return next(error);
   }
-);
+
+  res.status(500).json({
+    error: "Internal server error.",
+  });
+});
 
 /* =========================================================
    START SERVER
 ========================================================= */
 
-if (require.main === module) app.listen(
-  PORT,
-  '0.0.0.0',
-  () => {
-    console.log(
-      `MySQL Admin server running on port ${PORT}`
-    );
+if (require.main === module)
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`MySQL Admin server running on port ${PORT}`);
 
-    console.log(
-      `Environment: ${
-        process.env.NODE_ENV ||
-        'development'
-      }`
-    );
-  }
-);
+    console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
+  });
 
 module.exports = app;

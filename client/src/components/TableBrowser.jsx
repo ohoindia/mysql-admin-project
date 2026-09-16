@@ -160,29 +160,29 @@ export default function TableBrowser({ browser, superUser }) {
                         ))}
 
                         <td className="actions">
+                          <button
+                            disabled={
+                              schema.filter((c) => c.columnKey === "PRI")
+                                .length !== 1
+                            }
+                            onClick={() =>
+                              setEditing({
+                                original: row,
+                                values: buildEditableValues(schema, row),
+                              })
+                            }
+                          >
+                            Edit
+                          </button>
                           {superUser && (
                             <button
-                              disabled={
-                                schema.filter((c) => c.columnKey === "PRI")
-                                  .length !== 1
-                              }
-                              onClick={() =>
-                                setEditing({
-                                  original: row,
-                                  values: buildEditableValues(schema, row),
-                                })
-                              }
+                              className="danger"
+                              disabled={!primaryKey}
+                              onClick={() => remove(row)}
                             >
-                              Edit
+                              Delete
                             </button>
                           )}
-                          <button
-                            className="danger"
-                            disabled={!primaryKey}
-                            onClick={() => remove(row)}
-                          >
-                            Delete
-                          </button>
                         </td>
                       </tr>
                     ))

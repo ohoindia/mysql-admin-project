@@ -162,7 +162,8 @@ whether a write committed; check its outcome before retrying.
 
 Deploy the updated Lambda API as well as the client to enable this feature.
 
-Only `SUPER_USER` sees Edit buttons and can use the record update API. SQL
+All authenticated users can edit records in tables they can access. Only
+`SUPER_USER` can see Delete and use the record delete API. SQL
 results support editing direct columns from one table in the configured database
 when its single primary key is included. Aliases map back to the original column
 names. Other result sets remain read-only. After saving, rerun the query to see

@@ -1,6 +1,6 @@
 import { getInputType, getInputStep } from "../utils/fields";
 
-export default function RecordModal({ browser, superUser }) {
+export default function RecordModal({ browser }) {
   const {
     table,
     schema,
@@ -86,7 +86,7 @@ export default function RecordModal({ browser, superUser }) {
         </div>
       )}
 
-      {superUser && editing && (
+      {editing && (
         <div className="modal">
           <div className="card">
             <div className="modal-header">

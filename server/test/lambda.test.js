@@ -42,7 +42,11 @@ require("mysql2/promise").createPool = () => ({
     },
   }),
   query: async (sql, params) =>
-    params?.[1] === "editable"
+    sql.trim().startsWith("UPDATE")
+      ? [{ affectedRows: 1 }]
+      : sql.includes("INFORMATION_SCHEMA.COLUMNS") && params?.[1] === "visible"
+      ? [[{ name: "id", columnKey: "PRI" }, { name: "value" }]]
+      : params?.[1] === "editable"
       ? [[{ name: "id", columnKey: "PRI" }]]
       : [
           sql.includes("INFORMATION_SCHEMA.TABLES")
@@ -223,7 +227,7 @@ test("super user bypasses table restrictions while admin remains restricted", as
       assert.equal(
         (await invoke(method, `/api/tables/bad-name/${suffix}`, { token }))
           .statusCode,
-        username === "admin" && method === "PUT" ? 403 : 400,
+        username === "admin" && method === "DELETE" ? 403 : 400,
       );
     }
   }
@@ -261,6 +265,12 @@ test("SQL console enforces auth and table restrictions, validates input and pres
     assert.equal(response.statusCode, username === "admin" ? 403 : 200);
     if (username === "admin") {
       assert.equal(queryCalls.length, before);
+      const deletion = await invoke("DELETE", "/api/tables/visible/rows", {
+        token,
+        body: { keyColumn: "id", keyValue: 1 },
+      });
+      assert.equal(deletion.statusCode, 403);
+      assert.equal(JSON.parse(deletion.body).error, "Only super users can delete records.");
       assert.equal(
         (
           await invoke("PUT", "/api/tables/visible/rows", {
@@ -268,7 +278,7 @@ test("SQL console enforces auth and table restrictions, validates input and pres
             body: { keyColumn: "id", keyValue: 1, values: { value: 2 } },
           })
         ).statusCode,
-        403,
+        200,
       );
       continue;
     }

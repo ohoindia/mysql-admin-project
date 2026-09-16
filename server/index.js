@@ -502,26 +502,24 @@ app.post("/api/query", requireAuth, async (req, res) => {
         : [format(rows, fields)];
     connection.destroy();
     connection = null;
-    if (isSuperUser(req.username)) {
-      for (const [index, result] of results.entries()) {
-        const metadata = fields?.some(Array.isArray) ? fields[index] : fields;
-        if (!result.columns || !metadata?.length) continue;
-        const table = metadata[0].orgTable;
-        if (
-          !table ||
-          !metadata.every(
-            (f) =>
-              f.orgTable === table && f.db === process.env.DB_NAME && f.orgName,
-          )
+    for (const [index, result] of results.entries()) {
+      const metadata = fields?.some(Array.isArray) ? fields[index] : fields;
+      if (!result.columns || !metadata?.length) continue;
+      const table = metadata[0].orgTable;
+      if (
+        !table ||
+        !metadata.every(
+          (f) =>
+            f.orgTable === table && f.db === process.env.DB_NAME && f.orgName,
         )
-          continue;
-        const names = metadata.map((f) => f.orgName);
-        if (new Set(names).size !== names.length) continue;
-        const schema = await getTableSchema(table);
-        const keys = schema.filter((c) => c.columnKey === "PRI");
-        if (keys.length !== 1 || !names.includes(keys[0].name)) continue;
-        result.edit = { table, keyColumn: keys[0].name, columns: names };
-      }
+      )
+        continue;
+      const names = metadata.map((f) => f.orgName);
+      if (new Set(names).size !== names.length) continue;
+      const schema = await getTableSchema(table);
+      const keys = schema.filter((c) => c.columnKey === "PRI");
+      if (keys.length !== 1 || !names.includes(keys[0].name)) continue;
+      result.edit = { table, keyColumn: keys[0].name, columns: names };
     }
     res.json({ results, durationMs: Date.now() - started });
   } catch (error) {
@@ -1043,10 +1041,6 @@ app.post("/api/tables/:table/rows", requireAuth, async (req, res) => {
 ========================================================= */
 
 app.put("/api/tables/:table/rows", requireAuth, async (req, res) => {
-  if (!isSuperUser(req.username))
-    return res
-      .status(403)
-      .json({ error: "Only super users can edit records." });
   try {
     const tableName = req.params.table;
 
@@ -1198,6 +1192,8 @@ app.put("/api/tables/:table/rows", requireAuth, async (req, res) => {
 ========================================================= */
 
 app.delete("/api/tables/:table/rows", requireAuth, async (req, res) => {
+  if (!isSuperUser(req.username))
+    return res.status(403).json({ error: "Only super users can delete records." });
   try {
     const tableName = req.params.table;
 

@@ -78,6 +78,7 @@ test("active entry supports table search and super-user editing under StrictMode
   );
   await user.click(await screen.findByRole("button", { name: "people" }));
   await screen.findByText("Alice");
+  expect(screen.getByRole("button", { name: "Delete" }).disabled).toBe(false);
   await user.type(screen.getByPlaceholderText("Search people..."), "Alice");
   await user.click(screen.getByRole("button", { name: "Search", exact: true }));
   await waitFor(() =>
@@ -91,21 +92,29 @@ test("active entry supports table search and super-user editing under StrictMode
   expect(screen.getByRole("heading", { name: "Edit people" })).toBeTruthy();
 });
 
-test("regular users do not see Edit in table or SQL results", async () => {
+test("regular users can edit table and SQL results but cannot delete", async () => {
   state.superUser = false;
   const user = userEvent.setup();
   render(<App />);
   await user.click(await screen.findByRole("button", { name: "people" }));
   await screen.findByText("Alice");
   expect(
-    screen.queryByRole("button", { name: "Edit", exact: true }),
-  ).toBeNull();
+    screen.getByRole("button", { name: "Edit", exact: true }).disabled,
+  ).toBe(false);
+  expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  await user.click(screen.getByRole("button", { name: "Edit", exact: true }));
+  expect(screen.getByRole("heading", { name: "Edit people" })).toBeTruthy();
+  await user.click(screen.getByRole("button", { name: "Save Changes", exact: true }));
+  await waitFor(() => expect(screen.queryByRole("heading", { name: "Edit people" })).toBeNull());
   await user.click(screen.getByRole("button", { name: "SQL Console" }));
   await user.click(await screen.findByRole("button", { name: "Run query" }));
   await screen.findByText("1 rows returned");
   expect(
-    screen.queryByRole("button", { name: "Edit", exact: true }),
-  ).toBeNull();
+    screen.getByRole("button", { name: "Edit", exact: true }).disabled,
+  ).toBe(false);
+  await user.click(screen.getByRole("button", { name: "Edit", exact: true }));
+  await user.click(screen.getByRole("button", { name: "Save changes", exact: true }));
+  await waitFor(() => expect(api.put).toHaveBeenCalled());
 });
 
 test("SQL editor runs, saves by original primary key, and retains the draft across views", async () => {

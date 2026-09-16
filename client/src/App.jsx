@@ -62,7 +62,6 @@ function Workspace({ session, logout }) {
             <Suspense fallback={<p role="status">Loading SQL Console...</p>}>
               <QueryConsole
                 allowed={session.canRunQueries === true}
-                superUser={superUser}
               />
             </Suspense>
           </div>
@@ -71,7 +70,7 @@ function Workspace({ session, logout }) {
           <TableBrowser browser={browser} superUser={superUser} />
         )}
       </main>
-      <RecordModal browser={browser} superUser={superUser} />
+      <RecordModal browser={browser} />
     </div>
   );
 }

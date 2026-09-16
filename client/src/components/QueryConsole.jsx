@@ -8,13 +8,13 @@ const displayValue = (value) =>
       ? JSON.stringify(value)
       : String(value);
 
-export default function QueryConsole({ allowed, superUser, onUnauthorized }) {
+export default function QueryConsole({ allowed, onUnauthorized }) {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   async function saveEdit(event) {
     event.preventDefault();
-    if (saving || !superUser) return;
+    if (saving) return;
     setSaving(true);
     setSaveError("");
     try {
@@ -135,7 +135,7 @@ export default function QueryConsole({ allowed, superUser, onUnauthorized }) {
                   ? " — showing the first 1,000 rows. Add LIMIT to narrow results."
                   : ""}
               </p>
-              {superUser && !set.edit && (
+              {!set.edit && (
                 <p>
                   Editing requires columns from one table, including its single
                   primary key. Calculated results cannot be edited.
@@ -148,7 +148,7 @@ export default function QueryConsole({ allowed, superUser, onUnauthorized }) {
                       {set.columns.map((name, i) => (
                         <th key={i}>{name}</th>
                       ))}
-                      {superUser && <th>Actions</th>}
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -163,33 +163,31 @@ export default function QueryConsole({ allowed, superUser, onUnauthorized }) {
                             )}
                           </td>
                         ))}
-                        {superUser && (
-                          <td>
-                            <button
-                              disabled={
-                                !set.edit ||
-                                row[
-                                  set.edit.columns.indexOf(set.edit.keyColumn)
-                                ] == null
-                              }
-                              onClick={() => {
-                                setSaveError("");
-                                setEditing({
-                                  set,
-                                  row,
-                                  values: Object.fromEntries(
-                                    set.edit.columns.map((name, j) => [
-                                      name,
-                                      row[j],
-                                    ]),
-                                  ),
-                                });
-                              }}
-                            >
-                              Edit
-                            </button>
-                          </td>
-                        )}
+                        <td>
+                          <button
+                            disabled={
+                              !set.edit ||
+                              row[
+                                set.edit.columns.indexOf(set.edit.keyColumn)
+                              ] == null
+                            }
+                            onClick={() => {
+                              setSaveError("");
+                              setEditing({
+                                set,
+                                row,
+                                values: Object.fromEntries(
+                                  set.edit.columns.map((name, j) => [
+                                    name,
+                                    row[j],
+                                  ]),
+                                ),
+                              });
+                            }}
+                          >
+                            Edit
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -208,7 +206,7 @@ export default function QueryConsole({ allowed, superUser, onUnauthorized }) {
           )}
         </section>
       ))}
-      {superUser && editing && (
+      {editing && (
         <div
           className="modal"
           role="dialog"

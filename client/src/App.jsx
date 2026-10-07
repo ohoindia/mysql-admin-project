@@ -9,11 +9,11 @@ import useTableBrowser from "./hooks/useTableBrowser";
 
 const QueryConsole = lazy(() => import("./components/QueryConsole"));
 
-function Workspace({ session, logout }) {
+function Workspace({ session, logout, environment, setEnvironment }) {
   const [view, setView] = useState("tables");
   const [queryOpened, setQueryOpened] = useState(false);
-  const { tables, error, refresh } = useTables();
-  const browser = useTableBrowser();
+  const { tables, error, refresh } = useTables(environment);
+  const browser = useTableBrowser(environment);
   const superUser = session.isSuperUser === true;
   return (
     <div className="app">
@@ -29,6 +29,25 @@ function Workspace({ session, logout }) {
       />
       <main className="main-content">
         <nav className="query-actions" aria-label="Workspace">
+          <div className="database-selection" role="group" aria-label="Database">
+            <span>Database</span>
+            <button
+              type="button"
+              className={environment === "production" ? "primary" : "refresh-btn"}
+              aria-pressed={environment === "production"}
+              onClick={() => setEnvironment("production")}
+            >
+              Production
+            </button>
+            <button
+              type="button"
+              className={environment === "development" ? "primary" : "refresh-btn"}
+              aria-pressed={environment === "development"}
+              onClick={() => setEnvironment("development")}
+            >
+              Development
+            </button>
+          </div>
           <button
             className={view === "tables" ? "primary" : "refresh-btn"}
             aria-pressed={view === "tables"}
@@ -61,6 +80,7 @@ function Workspace({ session, logout }) {
             <h1>SQL Console</h1>
             <Suspense fallback={<p role="status">Loading SQL Console...</p>}>
               <QueryConsole
+                environment={environment}
                 allowed={session.canRunQueries === true}
               />
             </Suspense>
@@ -76,6 +96,7 @@ function Workspace({ session, logout }) {
 }
 
 export default function App() {
+  const [environment, setEnvironment] = useState("production");
   const { session, checking, signIn, logout } = useSession();
   if (checking)
     return (
@@ -84,5 +105,6 @@ export default function App() {
       </div>
     );
   if (!session) return <Login onLogin={signIn} />;
-  return <Workspace key={session.username} session={session} logout={logout} />;
+  return <Workspace key={`${session.username}:${environment}`} session={session} logout={logout}
+    environment={environment} setEnvironment={setEnvironment} />;
 }

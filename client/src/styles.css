@@ -875,6 +875,12 @@ select:focus-visible,
   opacity: 0.5;
   cursor: not-allowed;
 }
+.database-selection {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .query-results {
   max-height: 50vh;
   overflow: auto;

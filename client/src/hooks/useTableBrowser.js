@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { request as api } from "../services/api";
+import { request } from "../services/api";
 import { createLatestRequest } from "../utils/requests";
 
-export default function useTableBrowser() {
+export default function useTableBrowser(environment = "production") {
+  const api = (url, options = {}) => request(url, {
+    ...options, params: { ...options.params, environment },
+  });
   const requests = useRef(createLatestRequest());
   useEffect(() => {
     const current = requests.current;

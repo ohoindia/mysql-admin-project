@@ -8,7 +8,7 @@ const displayValue = (value) =>
       ? JSON.stringify(value)
       : String(value);
 
-export default function QueryConsole({ allowed, onUnauthorized }) {
+export default function QueryConsole({ allowed, onUnauthorized, environment = "production" }) {
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -26,7 +26,7 @@ export default function QueryConsole({ allowed, onUnauthorized }) {
         keyColumn: set.edit.keyColumn,
         keyValue: row[set.edit.columns.indexOf(set.edit.keyColumn)],
         values: changes,
-      });
+      }, { params: { environment } });
       setResult(null);
       setEditing(null);
       setError("Record saved. Run the query again to refresh results.");
@@ -58,7 +58,7 @@ export default function QueryConsole({ allowed, onUnauthorized }) {
     setError("");
     setResult(null);
     try {
-      const response = await api.post("/query", { sql: statement });
+      const response = await api.post("/query", { sql: statement }, { params: { environment } });
       setResult(response.data);
     } catch (e) {
       if (e.response?.status === 401) onUnauthorized?.();

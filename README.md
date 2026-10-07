@@ -321,3 +321,5 @@ client change reaches `main` so Amplify's automatic deployment can use it.
 5. Refresh the app and sign in again on desktop/mobile. Login should return a
    token and subsequent requests should carry Authorization and return 200.
    Existing cookie sessions are deliberately rejected and need a new login.
+
+Select **Production** or **Development** using the Database selector in the workspace. Production is selected by default and uses `DB_NAME`; Development uses `DB_NAME_DEV`. Both share `DB_HOST`, `DB_PORT`, `DB_USER`, and `DB_PASSWORD`. Set `DB_NAME_DEV` in the server/Docker environment or Lambda runtime environment. Switching databases clears the current table, query results, and open record forms. All table operations and SQL Console requests use the selected database. If `DB_NAME_DEV` is missing, Development requests return a configuration error.

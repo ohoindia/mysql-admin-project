@@ -29,12 +29,25 @@ function Workspace({ session, logout, environment, setEnvironment }) {
       />
       <main className="main-content">
         <nav className="query-actions" aria-label="Workspace">
-          <label htmlFor="database-environment">Database</label>
-          <select id="database-environment" value={environment}
-            onChange={(event) => setEnvironment(event.target.value)}>
-            <option value="production">Production</option>
-            <option value="development">Development</option>
-          </select>
+          <div className="database-selection" role="group" aria-label="Database">
+            <span>Database</span>
+            <button
+              type="button"
+              className={environment === "production" ? "primary" : "refresh-btn"}
+              aria-pressed={environment === "production"}
+              onClick={() => setEnvironment("production")}
+            >
+              Production
+            </button>
+            <button
+              type="button"
+              className={environment === "development" ? "primary" : "refresh-btn"}
+              aria-pressed={environment === "development"}
+              onClick={() => setEnvironment("development")}
+            >
+              Development
+            </button>
+          </div>
           <button
             className={view === "tables" ? "primary" : "refresh-btn"}
             aria-pressed={view === "tables"}

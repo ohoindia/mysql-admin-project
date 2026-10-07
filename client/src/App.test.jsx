@@ -159,12 +159,15 @@ test("session expiry unmounts the workspace and clears query state", async () =>
 test("database defaults to Production and switching resets records and routes requests", async () => {
   const user = userEvent.setup();
   render(<App />);
-  const selector = await screen.findByLabelText("Database");
-  expect(selector.value).toBe("production");
+  const production = await screen.findByRole("button", { name: "Production" });
+  expect(production.getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: "Development" }).getAttribute("aria-pressed")).toBe("false");
   await user.click(await screen.findByRole("button", { name: "people" }));
   await screen.findByText("Alice");
   await user.click(screen.getByRole("button", { name: "Edit", exact: true }));
-  await user.selectOptions(selector, "development");
+  await user.click(screen.getByRole("button", { name: "Development" }));
+  expect(screen.getByRole("button", { name: "Development" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: "Production" }).getAttribute("aria-pressed")).toBe("false");
   expect(screen.queryByRole("heading", { name: "Edit people" })).toBeNull();
   expect(screen.queryByText("Alice")).toBeNull();
   await waitFor(() => expect(api.get).toHaveBeenCalledWith("/tables",

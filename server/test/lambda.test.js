@@ -8,6 +8,7 @@ Object.assign(process.env, {
   DB_USER: "test",
   DB_PASSWORD: "test",
   DB_NAME: "test",
+  DB_NAME_DEV: "test_dev",
   ADMIN_USER: "admin",
   ADMIN_PASSWORD: "test-password",
   SESSION_SECRET: "test-secret",
@@ -18,17 +19,19 @@ Object.assign(process.env, {
 // Exercise the real Express/Lambda adapter without connecting to a database.
 let destroyed = 0;
 const queryCalls = [];
-require("mysql2/promise").createPool = () => ({
+const databaseCalls = [];
+require("mysql2/promise").createPool = (config) => ({
   getConnection: async () => ({
     destroy() {
       destroyed++;
     },
     async query(options) {
       queryCalls.push(options);
+      databaseCalls.push({ database: config.database, sql: options.sql });
       if (options.sql === "SELECT id AS alias FROM editable")
         return [
           [[1]],
-          [{ name: "alias", orgName: "id", orgTable: "editable", db: "test" }],
+          [{ name: "alias", orgName: "id", orgTable: "editable", db: config.database }],
         ];
       if (options.sql === "bad SQL")
         throw Object.assign(new Error("Syntax error"), {
@@ -41,8 +44,9 @@ require("mysql2/promise").createPool = () => ({
       return [[[1, null]], [{ name: "value" }, { name: "value" }]];
     },
   }),
-  query: async (sql, params) =>
-    sql.trim().startsWith("UPDATE")
+  query: async (sql, params) => {
+    databaseCalls.push({ database: config.database, sql, params });
+    return sql.trim().startsWith("UPDATE")
       ? [{ affectedRows: 1 }]
       : sql.includes("INFORMATION_SCHEMA.COLUMNS") && params?.[1] === "visible"
       ? [[{ name: "id", columnKey: "PRI" }, { name: "value" }]]
@@ -52,7 +56,8 @@ require("mysql2/promise").createPool = () => ({
           sql.includes("INFORMATION_SCHEMA.TABLES")
             ? [{ name: "visible" }, { name: "restricted" }]
             : [{ value: 1 }],
-        ],
+        ];
+  },
 });
 const { handler } = require("../lambda");
 const origin = process.env.CORS_ORIGINS;
@@ -60,14 +65,14 @@ const origin = process.env.CORS_ORIGINS;
 function invoke(
   method,
   path,
-  { body, cookies, token, requestOrigin = origin } = {},
+  { body, cookies, token, environment, requestOrigin = origin } = {},
 ) {
   return handler(
     {
       version: "2.0",
       routeKey: "ANY /api/{proxy+}",
       rawPath: path,
-      rawQueryString: "",
+      rawQueryString: environment ? `environment=${encodeURIComponent(environment)}` : "",
       headers: {
         host: "example.execute-api.us-east-1.amazonaws.com",
         ...(token ? { authorization: `Bearer ${token}` } : {}),
@@ -331,4 +336,35 @@ test("SQL console enforces auth and table restrictions, validates input and pres
     });
     assert.equal(invalidKey.statusCode, 400);
   }
+});
+
+
+test("database selection isolates pools, schema lookup, SQL and writes", async () => {
+  const login = await invoke("POST", "/api/auth/login", {
+    body: { username: "superadmin", password: "test-password" },
+  });
+  const { token } = JSON.parse(login.body);
+  for (const environment of [undefined, "development", "production"]) {
+    const database = environment === "development" ? "test_dev" : "test";
+    const before = databaseCalls.length;
+    assert.equal((await invoke("GET", "/api/tables", { token, environment })).statusCode, 200);
+    assert.equal(databaseCalls.at(-1).params[0], database);
+    const result = await invoke("POST", "/api/query", {
+      token, environment, body: { sql: "SELECT id AS alias FROM editable" },
+    });
+    assert.equal(result.statusCode, 200);
+    assert.equal(JSON.parse(result.body).results[0].edit.table, "editable");
+    assert.equal((await invoke("PUT", "/api/tables/visible/rows", {
+      token, environment, body: { keyColumn: "id", keyValue: 1, values: { value: 2 } },
+    })).statusCode, 200);
+    assert.ok(databaseCalls.slice(before).every(call => call.database === database));
+  }
+  const before = databaseCalls.length;
+  assert.equal((await invoke("GET", "/api/tables", { token, environment: "other" })).statusCode, 400);
+  const saved = process.env.DB_NAME_DEV;
+  delete process.env.DB_NAME_DEV;
+  try {
+    assert.equal((await invoke("GET", "/api/tables", { token, environment: "development" })).statusCode, 503);
+    assert.equal(databaseCalls.length, before);
+  } finally { process.env.DB_NAME_DEV = saved; }
 });

@@ -136,7 +136,7 @@ test("SQL editor runs, saves by original primary key, and retains the draft acro
       keyColumn: "id",
       keyValue: 1,
       values: { name: "Bob" },
-    }),
+    }, { params: { environment: "production" } }),
   );
   await user.click(screen.getByRole("button", { name: "Table browser" }));
   await user.click(screen.getByRole("button", { name: "SQL Console" }));
@@ -153,4 +153,28 @@ test("session expiry unmounts the workspace and clears query state", async () =>
   act(() => state.listeners.forEach((listener) => listener()));
   expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "SQL Console" })).toBeNull();
+});
+
+
+test("database defaults to Production and switching resets records and routes requests", async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  const selector = await screen.findByLabelText("Database");
+  expect(selector.value).toBe("production");
+  await user.click(await screen.findByRole("button", { name: "people" }));
+  await screen.findByText("Alice");
+  await user.click(screen.getByRole("button", { name: "Edit", exact: true }));
+  await user.selectOptions(selector, "development");
+  expect(screen.queryByRole("heading", { name: "Edit people" })).toBeNull();
+  expect(screen.queryByText("Alice")).toBeNull();
+  await waitFor(() => expect(api.get).toHaveBeenCalledWith("/tables",
+    expect.objectContaining({ params: { environment: "development" } })));
+  await user.click(await screen.findByRole("button", { name: "people" }));
+  await screen.findByText("Alice");
+  expect(request).toHaveBeenCalledWith("/api/tables/people/schema",
+    expect.objectContaining({ params: { environment: "development" } }));
+  await user.click(screen.getByRole("button", { name: "SQL Console" }));
+  await user.click(await screen.findByRole("button", { name: "Run query" }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith("/query",
+    { sql: "SELECT 1 AS result;" }, { params: { environment: "development" } }));
 });

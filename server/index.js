@@ -84,7 +84,7 @@ if (missingEnv.length) {
    MYSQL CONNECTION
 ========================================================= */
 
-const pool = mysql.createPool({
+const createPool = (database) => mysql.createPool({
   host: process.env.DB_HOST,
 
   port: Number(process.env.DB_PORT || 3306),
@@ -93,7 +93,7 @@ const pool = mysql.createPool({
 
   password: process.env.DB_PASSWORD,
 
-  database: process.env.DB_NAME,
+  database,
 
   waitForConnections: true,
 
@@ -124,6 +124,20 @@ const pool = mysql.createPool({
   dateStrings: true,
   multipleStatements: false,
 });
+
+const pools = { production: createPool(process.env.DB_NAME) };
+const selectDatabase = (req, res, next) => {
+  const environment = req.query.environment ?? "production";
+  if (!["production", "development"].includes(environment))
+    return res.status(400).json({ error: "Invalid database environment." });
+  const databaseName = environment === "production"
+    ? process.env.DB_NAME : process.env.DB_NAME_DEV;
+  if (!databaseName)
+    return res.status(503).json({ error: "Development database is not configured (DB_NAME_DEV)." });
+  req.databaseName = databaseName;
+  req.pool = pools[environment] ||= createPool(databaseName);
+  next();
+};
 
 /* =========================================================
    ALLOWED TABLES
@@ -287,8 +301,8 @@ const requireAuth = (req, res, next) => {
    HELPER - GET TABLE SCHEMA
 ========================================================= */
 
-const getTableSchema = async (tableName) => {
-  const [columns] = await pool.query(
+const getTableSchema = async (tableName, req) => {
+  const [columns] = await req.pool.query(
     `
         SELECT
           COLUMN_NAME AS name,
@@ -304,7 +318,7 @@ const getTableSchema = async (tableName) => {
           AND TABLE_NAME = ?
         ORDER BY ORDINAL_POSITION
         `,
-    [process.env.DB_NAME, tableName],
+    [req.databaseName, tableName],
   );
 
   return columns;
@@ -376,9 +390,9 @@ const normalizeDateValue = (value, dataType) => {
    HEALTH CHECK
 ========================================================= */
 
-app.get("/api/health", async (req, res) => {
+app.get("/api/health", selectDatabase, async (req, res) => {
   try {
-    await pool.query("SELECT 1");
+    await req.pool.query("SELECT 1");
 
     res.json({
       status: "OK",
@@ -455,7 +469,7 @@ app.post("/api/auth/logout", (req, res) => {
    GET TABLES
 ========================================================= */
 
-app.post("/api/query", requireAuth, async (req, res) => {
+app.post("/api/query", requireAuth, selectDatabase, async (req, res) => {
   if (!canRunQueries(req.username)) {
     return res
       .status(403)
@@ -475,7 +489,7 @@ app.post("/api/query", requireAuth, async (req, res) => {
   try {
     // Never return a SQL-console session to the pool: USE, SET and transactions
     // must not change the connection state of later table-browser requests.
-    connection = await pool.getConnection();
+    connection = await req.pool.getConnection();
     const [rows, fields] = await connection.query({
       sql,
       rowsAsArray: true,
@@ -510,13 +524,13 @@ app.post("/api/query", requireAuth, async (req, res) => {
         !table ||
         !metadata.every(
           (f) =>
-            f.orgTable === table && f.db === process.env.DB_NAME && f.orgName,
+            f.orgTable === table && f.db === req.databaseName && f.orgName,
         )
       )
         continue;
       const names = metadata.map((f) => f.orgName);
       if (new Set(names).size !== names.length) continue;
-      const schema = await getTableSchema(table);
+      const schema = await getTableSchema(table, req);
       const keys = schema.filter((c) => c.columnKey === "PRI");
       if (keys.length !== 1 || !names.includes(keys[0].name)) continue;
       result.edit = { table, keyColumn: keys[0].name, columns: names };
@@ -532,9 +546,9 @@ app.post("/api/query", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/api/tables", requireAuth, async (req, res) => {
+app.get("/api/tables", requireAuth, selectDatabase, async (req, res) => {
   try {
-    const [rows] = await pool.query(
+    const [rows] = await req.pool.query(
       `
           SELECT
             TABLE_NAME AS name
@@ -543,7 +557,7 @@ app.get("/api/tables", requireAuth, async (req, res) => {
             AND TABLE_TYPE = 'BASE TABLE'
           ORDER BY TABLE_NAME ASC
           `,
-      [process.env.DB_NAME],
+      [req.databaseName],
     );
 
     /*
@@ -568,13 +582,13 @@ app.get("/api/tables", requireAuth, async (req, res) => {
    GET TABLE SCHEMA
 ========================================================= */
 
-app.get("/api/tables/:table/schema", requireAuth, async (req, res) => {
+app.get("/api/tables/:table/schema", requireAuth, selectDatabase, async (req, res) => {
   try {
     const tableName = req.params.table;
 
     validateTable(tableName, req.username);
 
-    const columns = await getTableSchema(tableName);
+    const columns = await getTableSchema(tableName, req);
 
     if (columns.length === 0) {
       return res.status(404).json({
@@ -600,7 +614,7 @@ app.get("/api/tables/:table/schema", requireAuth, async (req, res) => {
    ASC / DESC SORTING
 ========================================================= */
 
-app.get("/api/tables/:table/rows", requireAuth, async (req, res) => {
+app.get("/api/tables/:table/rows", requireAuth, selectDatabase, async (req, res) => {
   try {
     const tableName = req.params.table;
 
@@ -627,7 +641,7 @@ app.get("/api/tables/:table/rows", requireAuth, async (req, res) => {
     /*
      * Get table schema.
      */
-    const columns = await getTableSchema(tableName);
+    const columns = await getTableSchema(tableName, req);
 
     if (columns.length === 0) {
       return res.status(404).json({
@@ -786,7 +800,7 @@ app.get("/api/tables/:table/rows", requireAuth, async (req, res) => {
         ${whereClause}
       `;
 
-    const [countRows] = await pool.query(countSql, params);
+    const [countRows] = await req.pool.query(countSql, params);
 
     const total = Number(countRows[0]?.total || 0);
 
@@ -811,7 +825,7 @@ app.get("/api/tables/:table/rows", requireAuth, async (req, res) => {
         OFFSET ${offset}
       `;
 
-    const [rows] = await pool.query(dataSql, params);
+    const [rows] = await req.pool.query(dataSql, params);
 
     res.json({
       data: rows,
@@ -847,7 +861,7 @@ app.get("/api/tables/:table/rows", requireAuth, async (req, res) => {
    INSERT NEW ROW
 ========================================================= */
 
-app.post("/api/tables/:table/rows", requireAuth, async (req, res) => {
+app.post("/api/tables/:table/rows", requireAuth, selectDatabase, async (req, res) => {
   try {
     const tableName = req.params.table;
 
@@ -864,7 +878,7 @@ app.post("/api/tables/:table/rows", requireAuth, async (req, res) => {
     /*
      * Load actual MySQL schema.
      */
-    const columns = await getTableSchema(tableName);
+    const columns = await getTableSchema(tableName, req);
 
     if (columns.length === 0) {
       return res.status(404).json({
@@ -984,7 +998,7 @@ app.post("/api/tables/:table/rows", requireAuth, async (req, res) => {
        * Table only contains generated/default
        * columns.
        */
-      [result] = await pool.query(
+      [result] = await req.pool.query(
         `
             INSERT INTO \`${tableName}\`
             VALUES ()
@@ -1008,7 +1022,7 @@ app.post("/api/tables/:table/rows", requireAuth, async (req, res) => {
           )
         `;
 
-      [result] = await pool.query(sql, insertValues);
+      [result] = await req.pool.query(sql, insertValues);
     }
 
     res.status(201).json({
@@ -1040,7 +1054,7 @@ app.post("/api/tables/:table/rows", requireAuth, async (req, res) => {
    UPDATE ROW
 ========================================================= */
 
-app.put("/api/tables/:table/rows", requireAuth, async (req, res) => {
+app.put("/api/tables/:table/rows", requireAuth, selectDatabase, async (req, res) => {
   try {
     const tableName = req.params.table;
 
@@ -1060,7 +1074,7 @@ app.put("/api/tables/:table/rows", requireAuth, async (req, res) => {
       });
     }
 
-    const columns = await getTableSchema(tableName);
+    const columns = await getTableSchema(tableName, req);
 
     const validColumns = columns.map((column) => column.name);
 
@@ -1157,7 +1171,7 @@ app.put("/api/tables/:table/rows", requireAuth, async (req, res) => {
         LIMIT 1
       `;
 
-    const [result] = await pool.query(sql, params);
+    const [result] = await req.pool.query(sql, params);
 
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -1191,7 +1205,7 @@ app.put("/api/tables/:table/rows", requireAuth, async (req, res) => {
    DELETE ROW
 ========================================================= */
 
-app.delete("/api/tables/:table/rows", requireAuth, async (req, res) => {
+app.delete("/api/tables/:table/rows", requireAuth, selectDatabase, async (req, res) => {
   if (!isSuperUser(req.username))
     return res.status(403).json({ error: "Only super users can delete records." });
   try {
@@ -1207,7 +1221,7 @@ app.delete("/api/tables/:table/rows", requireAuth, async (req, res) => {
       });
     }
 
-    const columns = await getTableSchema(tableName);
+    const columns = await getTableSchema(tableName, req);
 
     const validColumns = columns.map((column) => column.name);
 
@@ -1241,7 +1255,7 @@ app.delete("/api/tables/:table/rows", requireAuth, async (req, res) => {
         LIMIT 1
       `;
 
-    const [result] = await pool.query(sql, [keyValue]);
+    const [result] = await req.pool.query(sql, [keyValue]);
 
     if (result.affectedRows === 0) {
       return res.status(404).json({
